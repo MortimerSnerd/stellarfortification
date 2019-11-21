@@ -105,14 +105,24 @@ def processInput(p:: Player, dT: float):
   else:
     thrusting = false
 
+def almost(a: float, b:float, eps:float):
+  return abs(a - b) <= eps
+
 def updatePlayer(t:: Player, dT: float):
   let vToPlayer = pos - Center
+  let minPush = 1
   if magnitude(vToPlayer) < (rings.top().radius + PlayerRadius):
-    // We don't want to worry about rings pushing
-    // the ship around, so don't go in there.
+    // We do not want to worry about rings pushing
+    // the ship around, so do not go in there.
     let n = normalize(vToPlayer)
+
+    if almost(magnitude(velocity), 0, 0.015):
+      // Do not allow a lack of velocity from pushing
+      // us out of there.
+      velocity = n * -minPush * 0.10
+
     let reflect = velocity - n*2*dot(velocity, n)
-    velocity = reflect * max(magnitude(velocity), 1) * 0.8
+    velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
   updateThingy(t, dT)
 
