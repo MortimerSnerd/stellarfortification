@@ -1,6 +1,3 @@
-//TODO fix scaling so we can use the entire screen.
-//     if we have to letterbox, at least do it in a
-//     way that it is centered.
 //TODO move rings array into Fort class.  Fort will also keep up with
 //     the cannon state, and the sparks.  May move it to its own module
 //     to clean things up a bit. And also the state needed to animate
@@ -27,8 +24,7 @@ let TurnSpeed = 230.0          // deg/s
 let PlayerAccel = 1.0
 let PlayerRadius = 15.mils
 let ThrusterLen = 10.mils
-let Center = xy_f { 0.5, 0.5 } // Center in "world" coordinates.
-let FireCooldown = 1/5.0
+let FireCooldown = 1/7.0
 let SegMaxHp = 3
 
 class Seg:
@@ -74,29 +70,30 @@ def go():
 
   while gl_frame() and gl_button("escape") != 1:
     let wdims = float(gl_window_size())
+    let coordScale = xy_1 * wdims.y
+    let playfieldDims = xy_f {wdims.x/wdims.y, 1.0}
+    let pixelLineWidth = 1/wdims.y
+
     let dT = gl_delta_time()
     updateRings(dT)
-    player.bullets = updateBullets(player.bullets, dT, wdims)
+    player.bullets = updateBullets(player.bullets, dT, playfieldDims)
     processInput(player, dT)
-    updatePlayer(player, dT)
+    updatePlayer(player, playfieldDims, dT)
 
     gl_clear(color_black)
-    gl_scale(wdims.y):
+    gl_scale(coordScale):
       gl_color(color_blue)
-      renderText("Eat a crap?", 2/wdims.y, 1/wdims.y, xy_f{12.mils, 12.mils})
-      renderStarfield(starfield, wdims)
-      renderPlayer(player, wdims)
-      renderBullets(player, wdims)
+      renderText("Eat a crap?", 2/wdims.y, pixelLineWidth, xy_f{12.mils, 12.mils})
+      renderStarfield(starfield, pixelLineWidth)
+      renderPlayer(player, pixelLineWidth)
+      renderBullets(player, pixelLineWidth)
 
-      for(rings) r: render(r, wdims)
-      gl_line_mode(true):
-        gl_translate(xy_f {0.5, 0.5}):
-          gl_rect(xy_1/2, true)
+      for(rings) r: render(r, playfieldDims, pixelLineWidth)
 
 def jitterY(p: xy_f, amt: float):
   return p + xy_y * 2 * (rnd_float() - 0.5) * amt
 
-def renderPlayer(p: Player, wdim: xy_f):
+def renderPlayer(p: Player, lineWidth):
   gl_translate(p.pos):
     let sc = sincos(p.rot)
     gl_rotate_z(sc):
@@ -111,7 +108,7 @@ def renderPlayer(p: Player, wdim: xy_f):
           gl_color(color_red)
           for(4): 
             gl_line(jitterY(mid, 0.005), jitterY(mid + xy_x * -ThrusterLen, 0.7*ThrusterLen), 
-                    1/wdim.y)
+                    lineWidth)
 
         gl_color(color_white)
         gl_polygon([rear1, 
@@ -140,8 +137,8 @@ def processInput(p:: Player, dT: float):
 def almost(a: float, b:float, eps:float):
   return abs(a - b) <= eps
 
-def updatePlayer(t:: Player, dT: float):
-  let vToPlayer = pos - Center
+def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
+  let vToPlayer = pos - pfDims * 0.5
   let minPush = 1
   if magnitude(vToPlayer) < (rings.top().radius + PlayerRadius):
     // We do not want to worry about rings pushing
@@ -161,9 +158,9 @@ def updatePlayer(t:: Player, dT: float):
       let reflect = velocity - n*2*dot(velocity, n)
       velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
-  updateThingy(t, dT)
+  updateThingy(t, pfDims, dT)
 
-def updateThingy(t:: Thingy, dT: float):
+def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
   pos += velocity * dT
   velocity *= vDecay
 
@@ -172,29 +169,28 @@ def updateThingy(t:: Thingy, dT: float):
 
   // Leaving edge of screen wraps around.
   if pos.x < -WrapMargin:
-    pos += xy_x + WrapMargin*2
+    pos += xy_f {pfDims.x + WrapMargin*2, 0}
   else:
-    if pos.x > (1+WrapMargin):
-      pos -= xy_x + WrapMargin*2
+    if pos.x > (pfDims.x+WrapMargin):
+      pos -= xy_f{pfDims.x + WrapMargin*2, 0}
 
   if pos.y < -WrapMargin:
-    pos += xy_y + WrapMargin*2
+    pos += xy_f {0, pfDims.y + WrapMargin*2}
   else:
     if pos.y > (WrapMargin+1):
-      pos -= xy_y + WrapMargin*2
+      pos -= xy_f{0, pfDims.y + WrapMargin*2}
 
 def updateRings(dT: float): 
   for(rings) r:
     r.rot += r.dRot * dT
 
-def render(r: Ring, wdims: xy_f):
-  //TODO color modified by ring segment hp.
-  liveSegments(r, wdims) p1, p2, sg:
+def render(r: Ring, pfDims: xy_f, pixelLineWidth):
+  liveSegments(r, pfDims) p1, p2, sg:
     gl_color(r.color * (sg.hp + 1) / (SegMaxHp+1))
-    gl_line(p1, p2, (1 + rnd_float()*2)/wdims.y)
+    gl_line(p1, p2, pixelLineWidth + pixelLineWidth*rnd_float()*1.5)
 
-def liveSegments(r: Ring, wdims: xy_f, blk):
-  let center = xy_f{0.5, 0.5}
+def liveSegments(r: Ring, pfDims: xy_f, blk):
+  let center = pfDims * 0.5
   for(r.segs) s, i: 
     if s.hp > 0:
       let a1  = r.rot + i * segArc
@@ -217,13 +213,16 @@ def initRings():
 
 def mkStarfield():
   let z = 0.0
-  let nPts = 40
+  let nPts = 120
   let pps = vector_reserve(typeof return, nPts)
   let colors = vector_reserve(typeof return, nPts)
 
   rnd_seed(0xdeadbeef)
   for(nPts):
-    pps.push(xyz_f {rnd_float(), rnd_float(), z})
+    // The window size may change, so for now generate
+    // stars in wider world coordinate system than necessary.
+    // The y coordinate in the world system is always 1.
+    pps.push(xyz_f {rnd_float() * 3, rnd_float(), z})
     colors.push(xyzw_f {rnd_float() * 0.2, rnd_float() * 0.7, rnd_float() * 0.8,
       1.0})
 
@@ -234,33 +233,33 @@ def mkStarfield():
 def jitter(f: float, range: float):
   return f + (rnd_float() * range - range/2)
 
-def renderStarfield(mesh, wdims: xy_f):
-  gl_point_scale( wdims.y / jitter(150, 80) )
+def renderStarfield(mesh, pixelLineWidth: float):
+  gl_point_scale(1 / pixelLineWidth / jitter(150, 80))
   gl_set_shader("color_attr_particle")
   gl_render_mesh(mesh)
   gl_set_shader("color")
 
-def renderBullets(pl: Player, wdims: xy_f):
+def renderBullets(pl: Player, pixelLineWidth):
   for(pl.bullets) b:
     let p1 = b.pos + normalize(pl.velocity) * 3.mils
-    gl_line(b.pos, p1, 2/wdims.y)
+    gl_line(b.pos, p1, 2 * pixelLineWidth)
 
-def updateBullets(bs: [Bullet], dT: float, wdims: xy_f):
+def updateBullets(bs: [Bullet], dT: float, pfDims: xy_f):
   return filter(bs) b:
     let newpos = b.pos +  b.velocity * dT
-    let rv = inPlayfield(b.pos) and not hitRingSegment(b.pos, newpos, wdims)
+    let rv = inPlayfield(b.pos, pfDims) and not hitRingSegment(b.pos, newpos, pfDims)
     b.pos = newpos
     rv
 
-def inPlayfield(p):
-  return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (1+WrapMargin) and p.y <= (1+WrapMargin)
+def inPlayfield(p, pfDims):
+  return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
 
 // Tests for a hit against a ring segment.
 // If there is a hit, the ring is damaged, and
 // this returns true.
-def hitRingSegment(p0, p1: xy_f, wdims: xy_f):
+def hitRingSegment(p0, p1: xy_f, pfDims: xy_f):
   for(rings) r:
-    liveSegments(r, wdims) x0, x1, sg:
+    liveSegments(r, pfDims) x0, x1, sg:
       let hit, hpos = line_intersect(p0, p1, x0, x1)
       if hit:
         sg.hp--
