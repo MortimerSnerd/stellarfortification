@@ -20,9 +20,11 @@ let PlayerAccel = 1.0
 let PlayerRadius = 15.mils
 let ThrusterLen = 10.mils
 let Center = xy_f { 0.5, 0.5 } // Center in "world" coordinates.
+let FireCooldown = 1/5.0
+let SegMaxHp = 3
 
 class Seg:
-  hp = 3 
+  hp = SegMaxHp 
 
 class Ring:
   segs: [Seg]
@@ -39,8 +41,14 @@ class Thingy:
   dRot: float
   rotDecay: float
 
+class Bullet:
+  pos: xy_f
+  velocity: xy_f
+
 class Player: Thingy
   thrusting = true
+  fireCooldown = 0.0
+  bullets: [Bullet]
 
 var rings = []
 
@@ -48,13 +56,15 @@ def go():
   fatal(gl_window("Stellar Fort", 640, 480))
   initRings()
 
-  let player = Player {pos: xy_f {0.7, 0.7}, velocity: xy_y, vDecay: 0.98, rot: 0.0, rotDecay: 0.9, dRot: 0.0}
+  let player = Player {pos: xy_f {0.7, 0.7}, velocity: xy_y, vDecay: 0.98, rot: 0.0, rotDecay: 0.85, dRot: 0.0,
+    bullets: []}
   let starfield = mkStarfield()
 
   while gl_frame() and gl_button("escape") != 1:
     let wdims = float(gl_window_size())
     let dT = gl_delta_time()
     updateRings(dT)
+    player.bullets = updateBullets(player.bullets, dT, wdims)
     processInput(player, dT)
     updatePlayer(player, dT)
 
@@ -64,6 +74,8 @@ def go():
       renderText("Eat a crap?", 2/wdims.y, 1/wdims.y, xy_f{12.mils, 12.mils})
       renderStarfield(starfield, wdims)
       renderPlayer(player, wdims)
+      renderBullets(player, wdims)
+
       for(rings) r: render(r, wdims)
       gl_line_mode(true):
         gl_translate(xy_f {0.5, 0.5}):
@@ -107,6 +119,11 @@ def processInput(p:: Player, dT: float):
     thrusting = true
   else:
     thrusting = false
+
+  fireCooldown -= dT
+  if fireCooldown <=0 and gl_button("space") > 0:
+    p.bullets.push(fireBullet(p))
+    fireCooldown = FireCooldown
 
 def almost(a: float, b:float, eps:float):
   return abs(a - b) <= eps
@@ -160,8 +177,8 @@ def updateRings(dT: float):
 
 def render(r: Ring, wdims: xy_f):
   //TODO color modified by ring segment hp.
-  gl_color(r.color)
-  liveSegments(r, wdims) p1, p2:
+  liveSegments(r, wdims) p1, p2, sg:
+    gl_color(r.color * (sg.hp + 1) / (SegMaxHp+1))
     gl_line(p1, p2, 1/wdims.y)
 
 def liveSegments(r: Ring, wdims: xy_f, blk):
@@ -172,7 +189,7 @@ def liveSegments(r: Ring, wdims: xy_f, blk):
       let a2  = a1 + segArc
       let sc1 = sincos(a1) * r.radius + center
       let sc2 = sincos(a2) * r.radius + center
-      blk(sc1, sc2)
+      blk(sc1, sc2, s)
 
 def mkRing(dRot, radius, color):
   let r = Ring {segs: vector_reserve(typeof return, segsPerRing), 
@@ -185,7 +202,6 @@ def initRings():
   rings.push(mkRing(30.0, RingMargin, color_white))
   rings.push(mkRing(-30.0, RingMargin * 2, color_blue))
   rings.push(mkRing(35, RingMargin * 3, color_green))
-  rings[0].segs[3].hp = 0
 
 def mkStarfield():
   let z = 0.0
@@ -212,4 +228,36 @@ def renderStarfield(mesh, wdims: xy_f):
   gl_render_mesh(mesh)
   gl_set_shader("color")
 
+def renderBullets(pl: Player, wdims: xy_f):
+  for(pl.bullets) b:
+    let p1 = b.pos + normalize(pl.velocity) * 3.mils
+    gl_line(b.pos, p1, 2/wdims.y)
+
+def updateBullets(bs: [Bullet], dT: float, wdims: xy_f):
+  return filter(bs) b:
+    let newpos = b.pos +  b.velocity * dT
+    let rv = inPlayfield(b.pos) and not hitRingSegment(b.pos, newpos, wdims)
+    b.pos = newpos
+    rv
+
+def inPlayfield(p):
+  return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (1+WrapMargin) and p.y <= (1+WrapMargin)
+
+// Tests for a hit against a ring segment.
+// If there is a hit, the ring is damaged, and
+// this returns true.
+def hitRingSegment(p0, p1: xy_f, wdims: xy_f):
+  for(rings) r:
+    liveSegments(r, wdims) x0, x1, sg:
+      let hit, hpos = line_intersect(p0, p1, x0, x1)
+      if hit:
+        sg.hp--
+        return true
+
+  return false
+
+// Returns a new bullet to be added to the bullets
+// array.
+def fireBullet(pl: Player):
+  return Bullet{pos: pl.pos, velocity: sincos(pl.rot) + pl.velocity}
 go()
