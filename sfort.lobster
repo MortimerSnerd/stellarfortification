@@ -118,14 +118,19 @@ def updatePlayer(t:: Player, dT: float):
     // We do not want to worry about rings pushing
     // the ship around, so do not go in there.
     let n = normalize(vToPlayer)
+    let nvel = normalize(velocity)
 
-    if almost(magnitude(velocity), 0, 0.015):
-      // Do not allow a lack of velocity from pushing
-      // us out of there.
-      velocity = n * -minPush * 0.10
+    // Only futz with the velocity if we're heading
+    // into the rings.  Don't interfere with the ship
+    // if it is heading out.
+    if dot(n, nvel) <= 0:
+      if almost(magnitude(velocity), 0, 0.015):
+        // Do not allow a lack of velocity from pushing
+        // us out of there.
+        velocity = n * -minPush * 0.10
 
-    let reflect = velocity - n*2*dot(velocity, n)
-    velocity = reflect * max(magnitude(velocity), minPush) * 0.8
+      let reflect = velocity - n*2*dot(velocity, n)
+      velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
   updateThingy(t, dT)
 
@@ -192,14 +197,14 @@ def mkStarfield():
   for(nPts):
     pps.push(xyz_f {rnd_float(), rnd_float(), z})
     colors.push(xyzw_f {rnd_float() * 0.2, rnd_float() * 0.7, rnd_float() * 0.8,
-    	1.0})
+      1.0})
 
   let rv = gl_new_mesh("PC", pps, colors, [], [], [])
   gl_mesh_pointsize(rv, 1)
   return rv
 
 def jitter(f: float, range: float):
-	return f + (rnd_float() * range - range/2)
+  return f + (rnd_float() * range - range/2)
 
 def renderStarfield(mesh, wdims: xy_f):
   gl_point_scale( wdims.y / jitter(150, 80) )
