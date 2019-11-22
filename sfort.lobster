@@ -1,6 +1,7 @@
 import std
 import color
 import vec
+import vfont
 
 // Notes
 // Coordinates are "world" coordinates, unless
@@ -59,6 +60,8 @@ def go():
 
     gl_clear(color_black)
     gl_scale(wdims.y):
+      gl_color(color_blue)
+      renderText("Eat a crap?", 2/wdims.y, 1/wdims.y, xy_f{12.mils, 12.mils})
       renderStarfield(starfield, wdims)
       renderPlayer(player, wdims)
       for(rings) r: render(r, wdims)
@@ -203,6 +206,5 @@ def renderStarfield(mesh, wdims: xy_f):
   gl_set_shader("color_attr_particle")
   gl_render_mesh(mesh)
   gl_set_shader("color")
-
 
 go()
