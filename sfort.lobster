@@ -4,6 +4,7 @@
 //     new ring growth.
 
 import std
+import nonstd
 import color
 import vec
 import vfont
@@ -90,8 +91,6 @@ def go():
 
       for(rings) r: render(r, playfieldDims, pixelLineWidth)
 
-def jitterY(p: xy_f, amt: float):
-  return p + xy_y * 2 * (rnd_float() - 0.5) * amt
 
 def renderPlayer(p: Player, lineWidth):
   gl_translate(p.pos):
@@ -133,9 +132,6 @@ def processInput(p:: Player, dT: float):
   if fireCooldown <=0 and gl_button("space") > 0:
     p.bullets.push(fireBullet(p))
     fireCooldown = FireCooldown
-
-def almost(a: float, b:float, eps:float):
-  return abs(a - b) <= eps
 
 def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
@@ -229,9 +225,6 @@ def mkStarfield():
   let rv = gl_new_mesh("PC", pps, colors, [], [], [])
   gl_mesh_pointsize(rv, 1)
   return rv
-
-def jitter(f: float, range: float):
-  return f + (rnd_float() * range - range/2)
 
 def renderStarfield(mesh, pixelLineWidth: float):
   gl_point_scale(1 / pixelLineWidth / jitter(150, 80))

@@ -1,6 +1,7 @@
 // Port of a debugging vector font I wrote for debugging
 // in Nim.
 import std
+import nonstd
 import vec
 
 // Sentinel marking end of continuous line.
@@ -66,13 +67,6 @@ private let letters = [
   LT{'Z', [0, 0,  6, 0,  0, 10,  6, 10]}
 ]
 
-def loop(start, end, body):
-  var i = start
-  while i <= end:
-    body(i)
-    i++
-
-
 // Ensure at runtime our array is in order.
 loop(1, length(letters)-1) i:
   assert letters[i-1].ch < letters[i].ch
@@ -100,7 +94,6 @@ private def lines(ix, scale: float, body):
       last = p
 
 // Just a linear search for now.
-// TODO: toupper
 private def lookupLetterIndex(c: int):
   for(letters) l,i:
     if c == l.ch:
