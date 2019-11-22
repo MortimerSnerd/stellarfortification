@@ -9,10 +9,10 @@ import vec
 import vfont
 
 // Notes
-// Coordinates are "world" coordinates, unless
+// Coordinates are "playfield" coordinates, unless
 // otherwise specified.  The entire playfield is
-// mapped to (0,0) - (1,1), with it scaled for the
-// height of the window.
+// mapped to (0,0) - (X,1), where X depends on the
+// aspect ratio. 
 
 def mils(f: float): return f * 0.001
 
