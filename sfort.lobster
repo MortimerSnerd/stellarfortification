@@ -1,3 +1,11 @@
+//TODO fix scaling so we can use the entire screen.
+//     if we have to letterbox, at least do it in a
+//     way that it is centered.
+//TODO move rings array into Fort class.  Fort will also keep up with
+//     the cannon state, and the sparks.  May move it to its own module
+//     to clean things up a bit. And also the state needed to animate
+//     new ring growth.
+
 import std
 import color
 import vec
@@ -32,6 +40,10 @@ class Ring:
   dRot: float
   radius: float
   color: color
+
+class Fort:
+  rings: [Ring] = []
+
 
 class Thingy:
   pos: xy_f
@@ -179,7 +191,7 @@ def render(r: Ring, wdims: xy_f):
   //TODO color modified by ring segment hp.
   liveSegments(r, wdims) p1, p2, sg:
     gl_color(r.color * (sg.hp + 1) / (SegMaxHp+1))
-    gl_line(p1, p2, 1/wdims.y)
+    gl_line(p1, p2, (1 + rnd_float()*2)/wdims.y)
 
 def liveSegments(r: Ring, wdims: xy_f, blk):
   let center = xy_f{0.5, 0.5}
