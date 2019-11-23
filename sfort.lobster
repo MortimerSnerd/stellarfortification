@@ -13,13 +13,22 @@ import vfont
 // Coordinates are "playfield" coordinates, unless
 // otherwise specified.  The entire playfield is
 // mapped to (0,0) - (X,1), where X depends on the
-// aspect ratio. 
+// aspect ratio.
+//
+// TODO one downside of this as a coordinate system
+// is that changing the window size changes the positions
+// of moving objects (player, bullets) relative to
+// objects whose position is fixed based on the playfield
+// dimensions (the always centered fort). Looks like the
+// only way to detect a window size change is to keep
+// with the last size and check it per-frame.
 
 def mils(f: float): return f * 0.001
 
 let segsPerRing= 12
 let segArc = 360.0 / segsPerRing
-let RingMargin = 40.mils       // Distances between rings. 
+let RingMargin = 40.mils       // Distances between rings.
+let OuterRingRadius = RingMargin * 3
 let WrapMargin = 18.mils       // How far past the window edge before we wrap to other side of screen.
 let TurnSpeed = 230.0          // deg/s
 let PlayerAccel = 1.0
@@ -36,11 +45,11 @@ class Ring:
   rot: float
   dRot: float
   radius: float
+  targetRadius: float
   color: color
 
 class Fort:
-  rings: [Ring] = []
-
+  rings: [Ring]
 
 class Thingy:
   pos: xy_f
@@ -59,14 +68,13 @@ class Player: Thingy
   fireCooldown = 0.0
   bullets: [Bullet]
 
-var rings = []
 
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
-  initRings()
 
-  let player = Player {pos: xy_f {0.7, 0.7}, velocity: xy_y, vDecay: 0.98, rot: 0.0, rotDecay: 0.85, dRot: 0.0,
+  let player = Player {pos: xy_f {0.7, 0.7}, velocity: xy_0, vDecay: 0.98, rot: 0.0, rotDecay: 0.75, dRot: 0.0,
     bullets: []}
+  let fort = mkFort()
   let starfield = mkStarfield()
 
   while gl_frame() and gl_button("escape") != 1:
@@ -76,8 +84,8 @@ def go():
     let pixelLineWidth = 1/wdims.y
 
     let dT = gl_delta_time()
-    updateRings(dT)
-    player.bullets = updateBullets(player.bullets, dT, playfieldDims)
+    updateFort(fort, dT)
+    player.bullets = updateBullets(player.bullets, fort, dT, playfieldDims)
     processInput(player, dT)
     updatePlayer(player, playfieldDims, dT)
 
@@ -89,7 +97,7 @@ def go():
       renderPlayer(player, pixelLineWidth)
       renderBullets(player, pixelLineWidth)
 
-      for(rings) r: render(r, playfieldDims, pixelLineWidth)
+      renderFort(fort, playfieldDims, pixelLineWidth)
 
 
 def renderPlayer(p: Player, lineWidth):
@@ -136,7 +144,7 @@ def processInput(p:: Player, dT: float):
 def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
   let minPush = 1
-  if magnitude(vToPlayer) < (rings.top().radius + PlayerRadius):
+  if magnitude(vToPlayer) < (OuterRingRadius + PlayerRadius):
     // We do not want to worry about rings pushing
     // the ship around, so do not go in there.
     let n = normalize(vToPlayer)
@@ -176,9 +184,20 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
     if pos.y > (WrapMargin+1):
       pos -= xy_f{0, pfDims.y + WrapMargin*2}
 
-def updateRings(dT: float): 
+def mkFort():
+  let rv = Fort {rings: vector_reserve(typeof return, 3)}
+  initRings(rv.rings)
+  return rv
+
+def updateFort(f:: Fort, dT: float):
   for(rings) r:
+    let dRad = r.targetRadius - r.radius
+    if not almost(dRad, 0, 0.001):
+      r.radius += dT*dRad*2 
     r.rot += r.dRot * dT
+
+def renderFort(f: Fort, pfDims, pixelLineWidth):
+  for(f.rings) r: render(r, pfDims, pixelLineWidth)
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
   liveSegments(r, pfDims) p1, p2, sg:
@@ -197,12 +216,11 @@ def liveSegments(r: Ring, pfDims: xy_f, blk):
 
 def mkRing(dRot, radius, color):
   let r = Ring {segs: vector_reserve(typeof return, segsPerRing), 
-                rot: 0.0, dRot: dRot, radius: radius, color: color }
+                rot: 0.0, dRot: dRot, radius: 0, targetRadius: radius, color: color }
   for(segsPerRing): r.segs.push(Seg{})
-  return r 
+  return r
 
-def initRings():
-  rings = vector_reserve(typeof return, 3)
+def initRings(rings):
   rings.push(mkRing(30.0, RingMargin, color_white))
   rings.push(mkRing(-30.0, RingMargin * 2, color_blue))
   rings.push(mkRing(35, RingMargin * 3, color_green))
@@ -234,15 +252,14 @@ def renderStarfield(mesh, pixelLineWidth: float):
 
 def renderBullets(pl: Player, pixelLineWidth):
   for(pl.bullets) b:
-    let p1 = b.pos + normalize(pl.velocity) * 3.mils
+    let p1 = b.pos + normalize(b.velocity) * 6.mils
     gl_line(b.pos, p1, 2 * pixelLineWidth)
 
-def updateBullets(bs: [Bullet], dT: float, pfDims: xy_f):
+def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f):
   return filter(bs) b:
-    let newpos = b.pos +  b.velocity * dT
-    let rv = inPlayfield(b.pos, pfDims) and not hitRingSegment(b.pos, newpos, pfDims)
-    b.pos = newpos
-    rv
+    let oldpos = b.pos
+    b.pos += b.velocity * dT
+    inPlayfield(b.pos, pfDims) and not hitRingSegment(f, oldpos, b.pos, pfDims)
 
 def inPlayfield(p, pfDims):
   return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
@@ -250,8 +267,8 @@ def inPlayfield(p, pfDims):
 // Tests for a hit against a ring segment.
 // If there is a hit, the ring is damaged, and
 // this returns true.
-def hitRingSegment(p0, p1: xy_f, pfDims: xy_f):
-  for(rings) r:
+def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f):
+  for(f.rings) r:
     liveSegments(r, pfDims) x0, x1, sg:
       let hit, hpos = line_intersect(p0, p1, x0, x1)
       if hit:
