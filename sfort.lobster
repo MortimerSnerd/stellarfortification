@@ -50,6 +50,9 @@ class Ring:
 
 class Fort:
   rings: [Ring]
+  cannonRot: xy_f       // sincos of cannon rotation.
+  rotSpeed: float       // This increases with levels.
+  cannonCooldown: float // Can't fire until <= 0.
 
 class Thingy:
   pos: xy_f
@@ -84,7 +87,7 @@ def go():
     let pixelLineWidth = 1/wdims.y
 
     let dT = gl_delta_time()
-    updateFort(fort, dT)
+    updateFort(fort, player, playfieldDims, dT)
     player.bullets = updateBullets(player.bullets, fort, dT, playfieldDims)
     processInput(player, dT)
     updatePlayer(player, playfieldDims, dT)
@@ -150,9 +153,8 @@ def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
     let n = normalize(vToPlayer)
     let nvel = normalize(velocity)
 
-    // Only futz with the velocity if we're heading
-    // into the rings.  Don't interfere with the ship
-    // if it is heading out.
+    // Don't interfere with the ship if it is heading away
+    // from the fort.
     if dot(n, nvel) <= 0:
       if almost(magnitude(velocity), 0, 0.015):
         // Do not allow a lack of velocity from pushing
@@ -185,11 +187,19 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
       pos -= xy_f{0, pfDims.y + WrapMargin*2}
 
 def mkFort():
-  let rv = Fort {rings: vector_reserve(typeof return, 3)}
+  let rv = Fort {rings: vector_reserve(typeof return, 3),
+     cannonRot: xy_x, rotSpeed: 1, cannonCooldown: 0.0 }
+
   initRings(rv.rings)
   return rv
 
-def updateFort(f:: Fort, dT: float):
+def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
+  let vToPlayer = normalize(player.pos - pfDims*0.5)
+  let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
+
+  if not almost(0, magnitude(na), 0.001):
+    cannonRot = normalize(na)
+
   for(rings) r:
     let dRad = r.targetRadius - r.radius
     if not almost(dRad, 0, 0.001):
@@ -214,6 +224,13 @@ def updateFort(f:: Fort, dT: float):
 
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
+
+  //TODO real canon graphic.
+  gl_color(color_white)
+  gl_translate(pfDims*0.5):
+    gl_rotate_z(f.cannonRot):
+      gl_rect(xy_f{RingMargin,RingMargin}*0.5, true)
+
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
   liveSegments(r, pfDims) p1, p2, sg:
