@@ -37,6 +37,10 @@ let ThrusterLen = 10.mils
 let FireCooldown = 1/7.0
 let SegMaxHp = 3
 
+// Line path used to draw cannon. Centered on 0,0
+let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
+  xy_f{ -2,-1}, xy_f{ -2,1}, xy_f{-3,4}, xy_f{1,1}, xy_f{3,1}, xy_f{3,0}]): _ * 5.mils
+
 class Seg:
   hp = SegMaxHp 
 
@@ -229,7 +233,8 @@ def renderFort(f: Fort, pfDims, pixelLineWidth):
   gl_color(color_white)
   gl_translate(pfDims*0.5):
     gl_rotate_z(f.cannonRot):
-      gl_rect(xy_f{RingMargin,RingMargin}*0.5, true)
+      loop(1,length(CannonLines)-1) i:
+        gl_line(CannonLines[i-1], CannonLines[i], pixelLineWidth)
 
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
