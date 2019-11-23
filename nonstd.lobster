@@ -10,6 +10,10 @@ def jitterY(p: xy_f, amt: float):
 def jitter(f: float, range: float):
   return f + (rnd_float() * range - range/2)
 
+// Jitters `p` by {±range.x, ±range.y}
+def jitter(p: xy_f, range: xy_f):
+  return xy_f{jitter(p.x, range.x), jitter(p.y, range.y)}
+
 // Are `a` and `b` equal with a tolerance of `eps`?
 def almost(a: float, b:float, eps:float):
   return abs(a - b) <= eps

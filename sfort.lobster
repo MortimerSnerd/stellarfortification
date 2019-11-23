@@ -36,6 +36,8 @@ let PlayerRadius = 15.mils
 let ThrusterLen = 10.mils
 let FireCooldown = 1/7.0
 let SegMaxHp = 3
+let PlasmaSpeed = 0.5
+let MaxPlasmaCooldown = 1.0
 
 // Line path used to draw cannon. Centered on 0,0
 let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
@@ -52,11 +54,16 @@ class Ring:
   targetRadius: float
   color: color
 
+class Bullet:
+  pos: xy_f
+  velocity: xy_f
+
 class Fort:
   rings: [Ring]
   cannonRot: xy_f       // sincos of cannon rotation.
   rotSpeed: float       // This increases with levels.
   cannonCooldown: float // Can't fire until <= 0.
+  plasmaBalls: [Bullet]
 
 class Thingy:
   pos: xy_f
@@ -65,10 +72,6 @@ class Thingy:
   rot: float
   dRot: float
   rotDecay: float
-
-class Bullet:
-  pos: xy_f
-  velocity: xy_f
 
 class Player: Thingy
   thrusting = true
@@ -192,17 +195,26 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
 
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
-     cannonRot: xy_x, rotSpeed: 1, cannonCooldown: 0.0 }
+     cannonRot: xy_x, rotSpeed: 1, cannonCooldown: MaxPlasmaCooldown,
+     plasmaBalls: [] }
 
   initRings(rv.rings)
   return rv
 
 def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
-  let vToPlayer = normalize(player.pos - pfDims*0.5)
+  let center = pfDims*0.5
+  let vToPlayer = normalize(player.pos - center)
   let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
 
   if not almost(0, magnitude(na), 0.001):
     cannonRot = normalize(na)
+
+  plasmaBalls = updateBullets(plasmaBalls, f, dT, pfDims)
+
+  cannonCooldown -= dT
+  if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
+    cannonCooldown = MaxPlasmaCooldown
+    plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
 
   for(rings) r:
     let dRad = r.targetRadius - r.radius
@@ -226,15 +238,24 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
     for(rings) r, i:
       r.targetRadius = (1+i)*RingMargin
 
+def canFire(f:: Fort):
+  return f.cannonCooldown <= 0
+
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
 
-  //TODO real canon graphic.
   gl_color(color_white)
   gl_translate(pfDims*0.5):
     gl_rotate_z(f.cannonRot):
       loop(1,length(CannonLines)-1) i:
         gl_line(CannonLines[i-1], CannonLines[i], pixelLineWidth)
+
+  gl_color(color_white)
+  for(f.plasmaBalls) p:
+    for(15):
+      let v = sincos(360*rnd_float())*pfDims.y/(40+10*rnd_float())
+      gl_line(p.pos, p.pos + v,
+        jitter(pixelLineWidth, pixelLineWidth*2))
 
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
@@ -297,23 +318,25 @@ def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f):
   return filter(bs) b:
     let oldpos = b.pos
     b.pos += b.velocity * dT
-    inPlayfield(b.pos, pfDims) and not hitRingSegment(f, oldpos, b.pos, pfDims)
+    let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
+    if sg:
+      sg.hp--
+
+    inPlayfield(b.pos, pfDims) and not sg
 
 def inPlayfield(p, pfDims):
   return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
 
 // Tests for a hit against a ring segment.
-// If there is a hit, the ring is damaged, and
-// this returns true.
-def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f):
+// If there is a hit, returns the segment, nil otherwise.
+def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
   for(f.rings) r:
     liveSegments(r, pfDims) x0, x1, sg:
       let hit, hpos = line_intersect(p0, p1, x0, x1)
       if hit:
-        sg.hp--
-        return true
+        return sg
 
-  return false
+  return nil
 
 // Returns a new bullet to be added to the bullets
 // array.
