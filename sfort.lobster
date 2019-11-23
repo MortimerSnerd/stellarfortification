@@ -41,7 +41,7 @@ class Seg:
   hp = SegMaxHp 
 
 class Ring:
-  segs: [Seg]
+  segs: [Seg] // In order from inner ring to outer.
   rot: float
   dRot: float
   radius: float
@@ -195,6 +195,22 @@ def updateFort(f:: Fort, dT: float):
     if not almost(dRad, 0, 0.001):
       r.radius += dT*dRad*2 
     r.rot += r.dRot * dT
+
+  let live, dead = partition(rings) r:
+    exists(r.segs) s:
+      s.hp > 0
+
+  if length(dead) > 0:
+    // Dead rings regenerate from the inside.
+    for(dead) r:
+      r.radius = 0
+      for(r.segs) s:
+        s.hp = SegMaxHp
+
+    rings = append(dead, live)
+
+    for(rings) r, i:
+      r.targetRadius = (1+i)*RingMargin
 
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
