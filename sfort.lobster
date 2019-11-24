@@ -250,10 +250,20 @@ def mkFort():
 def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   let center = pfDims*0.5
   let vToPlayer = normalize(player.pos - center)
-  let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
 
-  if not almost(0, magnitude(na), 0.001):
-    cannonRot = normalize(na)
+  if almost(-1.0, dot(vToPlayer, normalize(cannonRot)), 0.01):
+    // The player is directly behind us. If we don't nudge
+    // here, the turning will be painfully slow, since we're
+    // essentially trying to lerp towards the center of the
+    // cannon.  (maybe this vector lerping sucks more than
+    // originally anticipated).
+    cannonRot = lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, rotSpeed*dT)
+    print "ass"
+  else:
+    let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
+
+    if not almost(0, magnitude(na), 0.001):
+      cannonRot = normalize(na)
 
   var numSegsBroke = 0
   plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims)
