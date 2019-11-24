@@ -19,6 +19,7 @@ import vfont
 // with the last size and check it per-frame.
 
 def mils(f: float): return f * 0.001
+def percent(x): return float(x)*0.01
 
 let segsPerRing= 12
 let segArc = 360.0 / segsPerRing
@@ -36,6 +37,10 @@ let MaxPlasmaCooldown = 1.0
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 let SegPoints = 5                 // number of points for destroying a segment.
+let BaseSparkSpeed = 0.15
+let MinSparkAwareness = 1.0/5.0   // How close spark needs to be to player to notice them.
+let SparkNoticeChance = 10.percent
+let MaxSparkReactionTime = 0.3
 var Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
@@ -43,7 +48,7 @@ let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,
   xy_f{ -2,-1}, xy_f{ -2,1}, xy_f{-3,4}, xy_f{1,1}, xy_f{3,1}, xy_f{3,0}]): _ * 5.mils
 
 class Seg:
-  hp = SegMaxHp 
+  hp = SegMaxHp
 
 class Ring:
   segs: [Seg] // In order from inner ring to outer.
@@ -52,6 +57,19 @@ class Ring:
   radius: float
   targetRadius: float
   color: color
+
+enum SparkState:
+  SeekingPlayer
+  SeekingRing
+  Riding
+
+class Spark:
+  pos: xy_f
+  state: SparkState = SeekingRing
+  hitch: Ring? // ring we are hitched to when state == Riding
+  seg: int     // ring #} when state == Riding
+  playerCheckInterval: float = 0.0 // Reaction time of sparks noticing player.
+  soundInterval = 0.0
 
 class Bullet:
   pos: xy_f
@@ -69,6 +87,7 @@ class Fort:
   plasmaBalls: [Bullet]
   state: FortState
   timeToRespawn: float
+  sparks: [Spark]
 
 class Thingy:
   pos: xy_f
@@ -251,10 +270,19 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
      cannonRot: xy_x, rotSpeed: 1, cannonCooldown: MaxPlasmaCooldown,
-     plasmaBalls: [], state: Dying, timeToRespawn: 0 }
+     plasmaBalls: [], state: Dying, timeToRespawn: 0,
+     sparks: initialSparks()}
 
   initRings(rv.rings)
   return rv
+
+def initialSparks():
+  let rv = []
+  for(3):
+    rv.push(Spark{pos: xy_1*0.5, state: SeekingRing, hitch: nil, seg: 0})
+
+  return rv
+
 
 def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   let center = pfDims*0.5
@@ -266,7 +294,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
     // essentially trying to lerp towards the center of the
     // cannon.  (maybe this vector lerping sucks more than
     // originally anticipated).
-    cannonRot = lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, rotSpeed*dT)
+    cannonRot = normalize(lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, rotSpeed*dT))
   else:
     let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
 
@@ -313,6 +341,92 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       r.radius += dT*dRad*2 
     r.rot += r.dRot * dT
 
+  if f.state != Dying:
+    updateSparks(f, player, dT, pfDims)
+
+def renderSparks(f: Fort, pixelLineWidth):
+  gl_color(color_red)
+  for(f.sparks) s:
+    //DEBUGGERY
+    let d = xy_1 * 5.mils
+    gl_line(s.pos - d, s.pos + d, pixelLineWidth)
+    gl_line(s.pos - xy_f{d.x, -d.y}, s.pos + xy_f{d.x,-d.y}, pixelLineWidth)
+
+def updateSparks(f: Fort, player: Player, dT, pfDims):
+  for(f.sparks) s:
+    let vToPlayer = player.pos - s.pos
+    let pdist = magnitude(vToPlayer)
+
+    if pdist < PlayerRadius:
+      play_sfxr("data/sfx/playerboom.sfxr", Volume)
+      //TODO more to do when player actually has a dead state.
+    else:
+      switch s.state:
+        case SeekingPlayer:
+          if pdist > MinSparkAwareness:
+            s.state = SeekingRing
+          else:
+            s.pos += vToPlayer/pdist * dT * BaseSparkSpeed
+
+        case Riding:
+          if s.hitch == nil:
+            s.state = SeekingRing
+          else:
+            s.playerCheckInterval -= dT
+            if s.playerCheckInterval <= 0:
+              s.playerCheckInterval = MaxSparkReactionTime
+
+              if pdist < MinSparkAwareness and rnd_float() < SparkNoticeChance:
+                s.state = SeekingPlayer
+
+            if s.state == Riding:  // still
+              if s.hitch.targetRadius == 0 or s.hitch.segs[s.seg].hp <= 0:
+                // Well crap, they shot the ring out from under us.
+                s.state = SeekingPlayer
+              else:
+                s.pos = ringMidpoint(s.hitch, s.seg, pfDims*0.5)
+
+        case SeekingRing:
+          let vToFort = pfDims*0.5 - s.pos
+          let fortDist = magnitude(vToFort)
+
+          if fortDist <= OuterRingRadius*0.7:
+            let ring = rnd(length(f.rings))
+            let seg = rnd(length(f.rings[ring].segs))
+
+            if not anySparkOnSeg(f, f.rings[ring], seg) and f.rings[ring].segs[seg].hp > 0:
+              s.hitch = f.rings[ring]
+              s.seg = seg
+              s.state = Riding
+            else:
+              // Wander around till we hit on a live segment.
+              s.pos += normalize(jitter(vToFort, xy_1*CannonRadius))*dT*BaseSparkSpeed
+          else:
+            s.pos += normalize(vToFort)*dT*BaseSparkSpeed
+
+      if s.state == SeekingPlayer or s.state == SeekingRing:
+        s.soundInterval -= dT
+        if s.soundInterval <= 0:
+          play_sfxr("data/sfx/sparkmove.sfxr", Volume)
+          s.soundInterval += 0.3
+
+// Returns true if there is already a spark
+// riding on the given segment.
+def anySparkOnSeg(f: Fort, ring: Ring?, seg: int):
+  return exists(f.sparks) s:
+    s.state == Riding and s.hitch == ring and s.seg == seg
+
+// Returns the midpoint of the ring segment addressed by
+// `hitch`.
+def ringMidpoint(ring: Ring, seg: int, center: xy_f):
+  let numSegs = length(ring.segs)
+  let dang = 360.0 / numSegs
+  let ang = ring.rot + dang * float(seg)
+  let ang2 = ang + dang*0.5
+
+  return center + sincos(ang2) * ring.radius
+
+
 def respaceRings(rings):
   for(rings) r, i:
     r.targetRadius = (1+i)*RingMargin
@@ -322,6 +436,8 @@ def canFire(f:: Fort):
 
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
+  if f.state != Dying:
+    renderSparks(f, pixelLineWidth)
 
   var col = color_white 
   var scale = 1.0
@@ -350,7 +466,6 @@ def renderFort(f: Fort, pfDims, pixelLineWidth):
       let v = sincos(360*rnd_float())*pfDims.y/(40+10*rnd_float())
       gl_line(p.pos, p.pos + v,
         jitter(pixelLineWidth, pixelLineWidth*2))
-
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
   liveSegments(r, pfDims) p1, p2, sg:
@@ -384,7 +499,6 @@ def mkStarfield():
   let pps = vector_reserve(typeof return, nPts)
   let colors = vector_reserve(typeof return, nPts)
 
-  rnd_seed(0xdeadbeef)
   for(nPts):
     // The window size may change, so for now generate
     // stars in wider world coordinate system than necessary.
