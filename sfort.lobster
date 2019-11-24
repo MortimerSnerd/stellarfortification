@@ -36,6 +36,7 @@ let MaxPlasmaCooldown = 1.0
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 let SegPoints = 5                 // number of points for destroying a segment.
+var Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
 let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
@@ -87,6 +88,9 @@ class Player: Thingy
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
 
+  let BCD = 3.6
+  var bgnoiseCooldown = 0.0
+
   let player = Player {pos: xy_f {0.7, 0.7}, velocity: xy_0, vDecay: 0.98, rot: 0.0, rotDecay: 0.75, dRot: 0.0,
     bullets: []}
   let fort = mkFort()
@@ -99,6 +103,12 @@ def go():
     let pixelLineWidth = 1/wdims.y
 
     let dT = gl_delta_time()
+
+    bgnoiseCooldown -= dT
+    if bgnoiseCooldown <= 0 and fort.state != Dying:
+      play_sfxr("data/sfx/bgnoise.sfxr", Volume)
+      bgnoiseCooldown = BCD
+
     updateFort(fort, player, playfieldDims, dT)
     processInput(player, dT)
     updatePlayer(player, fort, playfieldDims, dT)
@@ -108,14 +118,13 @@ def go():
       gl_color(color_blue)
       renderStarfield(starfield, pixelLineWidth)
       renderPlayer(player, fort, pixelLineWidth, wdims.y)
-
       renderFort(fort, playfieldDims, pixelLineWidth)
-
 
 // Sets up the fort state for the death animation, and
 // score screen.
 def killFort(f:: Fort):
   if state != Dying:
+    play_sfxr("data/sfx/fortboom.sfxr")
     state = Dying
     timeToRespawn = DeathPeriod
     for(rings) r:
@@ -125,6 +134,7 @@ def killFort(f:: Fort):
 def respawnFort(f:: Fort):
   if state != Seeking:
     state = Seeking
+    play_sfxr("data/sfx/fortspawn.sfxr", Volume)
     respaceRings(rings)
     for(rings) r:
       for(r.segs) sg:
@@ -177,6 +187,7 @@ def processInput(p:: Player, dT: float):
   if fireCooldown <=0 and gl_button("space") > 0:
     p.bullets.push(fireBullet(p))
     fireCooldown = FireCooldown
+    play_sfxr("data/sfx/pshot.sfxr", Volume)
 
 def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
@@ -203,6 +214,9 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
   bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims)
   if fort.state != Dying:
     score += numSegsBroke * SegPoints
+
+  if numSegsBroke > 0:
+    play_sfxr("data/sfx/ringhit.sfxr", Volume)
 
   // Did we hit the cannon?
   if fort.state != Dying:
@@ -237,7 +251,7 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
      cannonRot: xy_x, rotSpeed: 1, cannonCooldown: MaxPlasmaCooldown,
-     plasmaBalls: [], state: Seeking, timeToRespawn: 0 }
+     plasmaBalls: [], state: Dying, timeToRespawn: 0 }
 
   initRings(rv.rings)
   return rv
@@ -253,7 +267,6 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
     // cannon.  (maybe this vector lerping sucks more than
     // originally anticipated).
     cannonRot = lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, rotSpeed*dT)
-    print "ass"
   else:
     let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
 
@@ -262,6 +275,8 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
 
   var numSegsBroke = 0
   plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims)
+  if numSegsBroke:
+    play_sfxr("data/sfx/ringhit.sfxr", Volume)
 
   cannonCooldown -= dT
   switch state:
@@ -269,6 +284,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
         cannonCooldown = MaxPlasmaCooldown
         plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
+        play_sfxr("data/sfx/plasma.sfxr", max(128, 2*Volume))
 
       // Clean out any dead rings and regrow them.
       let live, dead = partition(rings) r:
@@ -284,6 +300,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
 
         rings = append(dead, live)
         respaceRings(rings)
+        play_sfxr("data/sfx/ringgrow.sfxr")
 
     case Dying:
       timeToRespawn -= dT
