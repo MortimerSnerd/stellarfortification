@@ -34,14 +34,20 @@ let FireCooldown = 1/7.0
 let SegMaxHp = 2
 let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
+let DPlasmaCooldown = 0.15
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 let SegPoints = 5                 // number of points for destroying a segment.
 let BaseSparkSpeed = 0.15
 let MinSparkAwareness = 1.0/5.0   // How close spark needs to be to player to notice them.
+let DSparkAwareness = 0.05        // How much awareness range increases per level.
 let SparkNoticeChance = 10.percent
 let MaxSparkReactionTime = 0.3
-let SparkTurnSpeed = 0.7          // How fast can we lerp a direction 
+let SparkTurnSpeed = 0.7          // How fast can we lerp a direction
+let BaseRingSpeed = 45.0
+let DRingSpeed = 10.0             // Degrees per second per level
+let CannonRotSpeed = 1
+let DCannonRotSpeed = 0.1         // Change in cannon rot speed per level.
 var Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
@@ -84,12 +90,12 @@ enum FortState:
 class Fort:
   rings: [Ring]
   cannonRot: xy_f       // sincos of cannon rotation.
-  rotSpeed: float       // This increases with levels.
   cannonCooldown: float // Can't fire until <= 0.
   plasmaBalls: [Bullet]
   state: FortState
   timeToRespawn: float
   sparks: [Spark]
+  numDeaths = 0         // Used to scale speeds etc for harder levels.
 
 class Thingy:
   pos: xy_f
@@ -154,10 +160,13 @@ def killFort(f:: Fort):
 // Called to move
 def respawnFort(f:: Fort, pfDims):
   if state != Seeking:
+    numDeaths++
     state = Seeking
     play_sfxr("data/sfx/fortspawn.sfxr", Volume)
     respaceRings(rings)
-    for(rings) r:
+    for(rings) r, i:
+      r.dRot = lvlRingSpeed(f, i)
+
       for(r.segs) sg:
         sg.hp = SegMaxHp
     //TODO increase rot speed etc.
@@ -165,6 +174,11 @@ def respawnFort(f:: Fort, pfDims):
     for(sparks) s:
       s.state = SeekingRing
       s.pos = pfDims*0.5
+
+def lvlRingSpeed(f: Fort, ringIdx:int):
+  let fac = if ringIdx == 1: -1 else: 1
+
+  return fac*(BaseRingSpeed + (2-ringIdx)*15.0 + DRingSpeed*f.numDeaths)
 
 def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
   renderBullets(p, lineWidth)
@@ -191,7 +205,7 @@ def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
                     xy_f {d*1.5, 0.0}])
 
   if fort.state == Dying:
-    let msg = "score: " + p.score
+    let msg = "score: " + p.score + "     level: " + (fort.numDeaths)
     gl_color(color_blue)
     renderText(msg, 2/winHeight, lineWidth, xy_f{400.mils, 12.mils})
 
@@ -275,11 +289,11 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
 
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
-     cannonRot: xy_x, rotSpeed: 1, cannonCooldown: MaxPlasmaCooldown,
+     cannonRot: xy_x,  cannonCooldown: MaxPlasmaCooldown,
      plasmaBalls: [], state: Dying, timeToRespawn: 0,
      sparks: initialSparks()}
 
-  initRings(rv.rings)
+  initRings(rv, rv.rings)
   return rv
 
 def initialSparks():
@@ -300,9 +314,9 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
     // essentially trying to lerp towards the center of the
     // cannon.  (maybe this vector lerping sucks more than
     // originally anticipated).
-    cannonRot = normalize(lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, rotSpeed*dT))
+    cannonRot = normalize(lerp(cannonRot, xy_f{cannonRot.y, cannonRot.x}, lvlCannonRotSpeed(f)*dT))
   else:
-    let na = lerp(cannonRot, vToPlayer, rotSpeed*dT)
+    let na = lerp(cannonRot, vToPlayer, lvlCannonRotSpeed(f)*dT)
 
     if not almost(0, magnitude(na), 0.001):
       cannonRot = normalize(na)
@@ -316,7 +330,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   switch state:
     case Seeking:
       if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
-        cannonCooldown = MaxPlasmaCooldown
+        cannonCooldown = lvlPlasmaCooldown(f)
         plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
         play_sfxr("data/sfx/plasma.sfxr", max(128, 2*Volume))
 
@@ -362,6 +376,13 @@ def renderSparks(f: Fort, pfDims, pixelLineWidth):
       renderSparkleBall(s.pos, 3, r1*0.5, r2*0.5, pixelLineWidth)
       renderSparkleBall(s.pos+s.dir*r1*0.8, 3, r1*0.5, r2*0.5, pixelLineWidth)
 
+// Plasma cannon cooldown scaled for level.
+def lvlPlasmaCooldown(f: Fort):
+  return max(0.1, MaxPlasmaCooldown - f.numDeaths*DPlasmaCooldown)
+
+def lvlCannonRotSpeed(f: Fort):
+  return CannonRotSpeed + f.numDeaths*DCannonRotSpeed
+
 def updateSparks(f: Fort, player: Player, dT, pfDims):
   for(f.sparks) s:
     let vToPlayer = player.pos - s.pos
@@ -374,7 +395,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
     else:
       switch s.state:
         case SeekingPlayer:
-          if pdist > MinSparkAwareness:
+          if pdist > lvlSparkAwarenessDist(f):
             s.state = SeekingRing
           else:
             s.dir = lerp(s.dir, vToPlayer/pdist, SparkTurnSpeed*dT)
@@ -389,7 +410,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
             if s.playerCheckInterval <= 0:
               s.playerCheckInterval = MaxSparkReactionTime
 
-              if pdist < MinSparkAwareness and rnd_float() < SparkNoticeChance:
+              if pdist < lvlSparkAwarenessDist(f) and rnd_float() < SparkNoticeChance:
                 s.state = SeekingPlayer
                 s.dir = normalize(jitter(vToPlayer/pdist, xy_1*0.2))
 
@@ -405,7 +426,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
           let vToFort = center - s.pos
           let fortDist = magnitude(vToFort)
 
-          if pdist < MinSparkAwareness:
+          if pdist < lvlSparkAwarenessDist(f):
             s.state = SeekingPlayer
           else:
             if fortDist <= OuterRingRadius*0.7:
@@ -425,6 +446,11 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
         if s.soundInterval <= 0:
           play_sfxr("data/sfx/sparkmove.sfxr", Volume)
           s.soundInterval += 0.3
+
+// Returns spark awareness range, scaled for
+// level.
+def lvlSparkAwarenessDist(f: Fort):
+  return MinSparkAwareness + f.numDeaths*DSparkAwareness
 
 // Returns true if there is already a spark
 // riding on the given segment.
@@ -507,10 +533,10 @@ def mkRing(dRot, radius, color):
   for(segsPerRing): r.segs.push(Seg{})
   return r
 
-def initRings(rings):
-  rings.push(mkRing(100.0, RingMargin, color_white))
-  rings.push(mkRing(-90.0, RingMargin * 2, color_blue))
-  rings.push(mkRing(80, RingMargin * 3, color_green))
+def initRings(f: Fort, rings):
+  rings.push(mkRing(lvlRingSpeed(f, 0), RingMargin, color_white))
+  rings.push(mkRing(lvlRingSpeed(f, 1), RingMargin * 2, color_blue))
+  rings.push(mkRing(lvlRingSpeed(f, 2), RingMargin * 3, color_green))
 
 def mkStarfield():
   let z = 0.0
