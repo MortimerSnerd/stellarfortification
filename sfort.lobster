@@ -296,13 +296,19 @@ def canFire(f:: Fort):
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
 
-  var col = color_white
+  var col = color_white 
   var scale = 1.0
+
   if f.state == Dying:
-    // Fade away.  Would look better to explode into pieces.
+    // Shrink away.  Would look better to explode into pieces.
     let c = rnd_float() 
     col = color {c, c, c, 1}
     scale = max(0, f.timeToRespawn) / (3*DeathPeriod)
+  else:
+    // Turn blue and jitter color when charged and ready to fire.
+    let fact = max(0, f.cannonCooldown) / MaxPlasmaCooldown
+    let bc = lerp(1.0, 0.0, fact)
+    col = color {1.0-bc, 1.0-bc, bc, 1.0}
 
   gl_color(col)
   gl_translate(pfDims*0.5):
