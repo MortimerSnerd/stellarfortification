@@ -31,7 +31,7 @@ let PlayerAccel = 1.0
 let PlayerRadius = 15.mils
 let ThrusterLen = 10.mils
 let FireCooldown = 1/7.0
-let SegMaxHp = 3
+let SegMaxHp = 2
 let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
 let CannonRadius = RingMargin / 2 // Used for collision detection.
@@ -152,7 +152,7 @@ def killFort(f:: Fort):
       r.targetRadius = 1.mils // Collapsing rings.
 
 // Called to move
-def respawnFort(f:: Fort):
+def respawnFort(f:: Fort, pfDims):
   if state != Seeking:
     state = Seeking
     play_sfxr("data/sfx/fortspawn.sfxr", Volume)
@@ -161,6 +161,10 @@ def respawnFort(f:: Fort):
       for(r.segs) sg:
         sg.hp = SegMaxHp
     //TODO increase rot speed etc.
+
+    for(sparks) s:
+      s.state = SeekingRing
+      s.pos = pfDims*0.5
 
 def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
   renderBullets(p, lineWidth)
@@ -335,7 +339,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
     case Dying:
       timeToRespawn -= dT
       if timeToRespawn <= 0:
-        respawnFort()
+        respawnFort(pfDims)
 
   for(rings) r:
     let dRad = r.targetRadius - r.radius
@@ -504,9 +508,9 @@ def mkRing(dRot, radius, color):
   return r
 
 def initRings(rings):
-  rings.push(mkRing(30.0, RingMargin, color_white))
-  rings.push(mkRing(-30.0, RingMargin * 2, color_blue))
-  rings.push(mkRing(35, RingMargin * 3, color_green))
+  rings.push(mkRing(100.0, RingMargin, color_white))
+  rings.push(mkRing(-90.0, RingMargin * 2, color_blue))
+  rings.push(mkRing(80, RingMargin * 3, color_green))
 
 def mkStarfield():
   let z = 0.0
