@@ -24,6 +24,10 @@ Then just run:
 
 		lobster sfort.lobster
 
+## Controls
+
+`A` and `D` to turn, `W` to go forward, and 
+`Space` to fire.  `Escape` quits.
 
 ## Status
 
