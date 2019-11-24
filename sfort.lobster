@@ -40,6 +40,7 @@ let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
+let SegPoints = 5                 // number of points for destroying a segment.
 
 // Line path used to draw cannon. Centered on 0,0
 let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
@@ -203,7 +204,10 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
       velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
   updateThingy(t, pfDims, dT)
-  bullets = updateBullets(bullets, fort, dT, pfDims)
+  var numSegsBroke = 0
+  bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims)
+  if fort.state != Dying:
+    score += numSegsBroke * SegPoints
 
   // Did we hit the cannon?
   if fort.state != Dying:
@@ -251,7 +255,8 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   if not almost(0, magnitude(na), 0.001):
     cannonRot = normalize(na)
 
-  plasmaBalls = updateBullets(plasmaBalls, f, dT, pfDims)
+  var numSegsBroke = 0
+  plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims)
 
   cannonCooldown -= dT
   switch state:
@@ -381,15 +386,21 @@ def renderBullets(pl: Player, pixelLineWidth):
     let p1 = b.pos + normalize(b.velocity) * 6.mils
     gl_line(b.pos, p1, 2 * pixelLineWidth)
 
-def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f):
-  return filter(bs) b:
+// Updates the bullets, and removes any that have
+// hit something, or gone off the playfield
+def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f) -> [Bullet], int:
+  var segsKilled = 0
+  let newbs = filter(bs) b:
     let oldpos = b.pos
     b.pos += b.velocity * dT
     let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
     if sg:
       sg.hp--
+      segsKilled++
 
     inPlayfield(b.pos, pfDims) and not sg
+
+  return newbs, segsKilled
 
 def inPlayfield(p, pfDims):
   return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
