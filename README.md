@@ -15,6 +15,15 @@ more clear.
 It is surprising how tangled the state can get
 for such a simple game.
 
+## Running
+
+You'll need the lobster compiler/interpreter itself, 
+which you can get [here](https://github.com/aardappel/lobster)
+
+Then just run:
+
+		lobster sfort.lobster
+
 
 ## Status
 
