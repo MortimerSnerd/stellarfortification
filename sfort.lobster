@@ -27,10 +27,10 @@ def mils(f: float): return f * 0.001
 
 let segsPerRing= 12
 let segArc = 360.0 / segsPerRing
-let RingMargin = 40.mils       // Distances between rings.
+let RingMargin = 40.mils          // Distances between rings.
 let OuterRingRadius = RingMargin * 3
-let WrapMargin = 18.mils       // How far past the window edge before we wrap to other side of screen.
-let TurnSpeed = 230.0          // deg/s
+let WrapMargin = 18.mils          // How far past the window edge before we wrap to other side of screen.
+let TurnSpeed = 230.0             // deg/s
 let PlayerAccel = 1.0
 let PlayerRadius = 15.mils
 let ThrusterLen = 10.mils
@@ -38,6 +38,8 @@ let FireCooldown = 1/7.0
 let SegMaxHp = 3
 let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
+let CannonRadius = RingMargin / 2 // Used for collision detection.
+let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 
 // Line path used to draw cannon. Centered on 0,0
 let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
@@ -58,12 +60,18 @@ class Bullet:
   pos: xy_f
   velocity: xy_f
 
+enum FortState:
+  Seeking
+  Dying
+
 class Fort:
   rings: [Ring]
   cannonRot: xy_f       // sincos of cannon rotation.
   rotSpeed: float       // This increases with levels.
   cannonCooldown: float // Can't fire until <= 0.
   plasmaBalls: [Bullet]
+  state: FortState
+  timeToRespawn: float
 
 class Thingy:
   pos: xy_f
@@ -77,6 +85,7 @@ class Player: Thingy
   thrusting = true
   fireCooldown = 0.0
   bullets: [Bullet]
+  score = 0
 
 
 def go():
@@ -95,22 +104,40 @@ def go():
 
     let dT = gl_delta_time()
     updateFort(fort, player, playfieldDims, dT)
-    player.bullets = updateBullets(player.bullets, fort, dT, playfieldDims)
     processInput(player, dT)
-    updatePlayer(player, playfieldDims, dT)
+    updatePlayer(player, fort, playfieldDims, dT)
 
     gl_clear(color_black)
     gl_scale(coordScale):
       gl_color(color_blue)
-      renderText("Eat a crap?", 2/wdims.y, pixelLineWidth, xy_f{12.mils, 12.mils})
       renderStarfield(starfield, pixelLineWidth)
-      renderPlayer(player, pixelLineWidth)
-      renderBullets(player, pixelLineWidth)
+      renderPlayer(player, fort, pixelLineWidth, wdims.y)
 
       renderFort(fort, playfieldDims, pixelLineWidth)
 
 
-def renderPlayer(p: Player, lineWidth):
+// Sets up the fort state for the death animation, and
+// score screen.
+def killFort(f:: Fort):
+  if state != Dying:
+    state = Dying
+    timeToRespawn = DeathPeriod
+    for(rings) r:
+      r.targetRadius = 1.mils // Collapsing rings.
+
+// Called to move
+def respawnFort(f:: Fort):
+  if state != Seeking:
+    state = Seeking
+    respaceRings(rings)
+    for(rings) r:
+      for(r.segs) sg:
+        sg.hp = SegMaxHp
+    //TODO increase rot speed etc.
+
+def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
+  renderBullets(p, lineWidth)
+
   gl_translate(p.pos):
     let sc = sincos(p.rot)
     gl_rotate_z(sc):
@@ -132,6 +159,10 @@ def renderPlayer(p: Player, lineWidth):
                     rear2, 
                     xy_f {d*1.5, 0.0}])
 
+  if fort.state == Dying:
+    let msg = "score: " + p.score
+    gl_color(color_blue)
+    renderText(msg, 2/winHeight, lineWidth, xy_f{400.mils, 12.mils})
 
 def processInput(p:: Player, dT: float):
   if gl_button("a") > 0:
@@ -151,7 +182,7 @@ def processInput(p:: Player, dT: float):
     p.bullets.push(fireBullet(p))
     fireCooldown = FireCooldown
 
-def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
+def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
   let minPush = 1
   if magnitude(vToPlayer) < (OuterRingRadius + PlayerRadius):
@@ -172,6 +203,17 @@ def updatePlayer(t:: Player, pfDims: xy_f, dT: float):
       velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
   updateThingy(t, pfDims, dT)
+  bullets = updateBullets(bullets, fort, dT, pfDims)
+
+  // Did we hit the cannon?
+  if fort.state != Dying:
+    let center = pfDims * 0.5
+    for(bullets) b:
+      let dist = magnitude(b.pos - center)
+      if dist < CannonRadius:
+        killFort(fort)
+        score += 300
+        return
 
 def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
   pos += velocity * dT
@@ -196,7 +238,7 @@ def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
      cannonRot: xy_x, rotSpeed: 1, cannonCooldown: MaxPlasmaCooldown,
-     plasmaBalls: [] }
+     plasmaBalls: [], state: Seeking, timeToRespawn: 0 }
 
   initRings(rv.rings)
   return rv
@@ -212,9 +254,31 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   plasmaBalls = updateBullets(plasmaBalls, f, dT, pfDims)
 
   cannonCooldown -= dT
-  if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
-    cannonCooldown = MaxPlasmaCooldown
-    plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
+  switch state:
+    case Seeking:
+      if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
+        cannonCooldown = MaxPlasmaCooldown
+        plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
+
+      // Clean out any dead rings and regrow them.
+      let live, dead = partition(rings) r:
+        exists(r.segs) s:
+          s.hp > 0
+
+      if length(dead) > 0:
+        // Dead rings regenerate from the inside.
+        for(dead) r:
+          r.radius = 0
+          for(r.segs) s:
+            s.hp = SegMaxHp
+
+        rings = append(dead, live)
+        respaceRings(rings)
+
+    case Dying:
+      timeToRespawn -= dT
+      if timeToRespawn <= 0:
+        respawnFort()
 
   for(rings) r:
     let dRad = r.targetRadius - r.radius
@@ -222,21 +286,9 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       r.radius += dT*dRad*2 
     r.rot += r.dRot * dT
 
-  let live, dead = partition(rings) r:
-    exists(r.segs) s:
-      s.hp > 0
-
-  if length(dead) > 0:
-    // Dead rings regenerate from the inside.
-    for(dead) r:
-      r.radius = 0
-      for(r.segs) s:
-        s.hp = SegMaxHp
-
-    rings = append(dead, live)
-
-    for(rings) r, i:
-      r.targetRadius = (1+i)*RingMargin
+def respaceRings(rings):
+  for(rings) r, i:
+    r.targetRadius = (1+i)*RingMargin
 
 def canFire(f:: Fort):
   return f.cannonCooldown <= 0
@@ -244,11 +296,20 @@ def canFire(f:: Fort):
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
 
-  gl_color(color_white)
+  var col = color_white
+  var scale = 1.0
+  if f.state == Dying:
+    // Fade away.  Would look better to explode into pieces.
+    let c = rnd_float() 
+    col = color {c, c, c, 1}
+    scale = max(0, f.timeToRespawn) / (3*DeathPeriod)
+
+  gl_color(col)
   gl_translate(pfDims*0.5):
-    gl_rotate_z(f.cannonRot):
-      loop(1,length(CannonLines)-1) i:
-        gl_line(CannonLines[i-1], CannonLines[i], pixelLineWidth)
+    gl_scale(scale):
+      gl_rotate_z(f.cannonRot):
+        loop(1,length(CannonLines)-1) i:
+          gl_line(CannonLines[i-1], CannonLines[i], pixelLineWidth)
 
   gl_color(color_white)
   for(f.plasmaBalls) p:
