@@ -35,6 +35,7 @@ let SegMaxHp = 2
 let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
 let DPlasmaCooldown = 0.10
+let PlasmaRadius = 1.0/40.0
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 let SegPoints = 5                 // number of points for destroying a segment.
@@ -49,6 +50,8 @@ let BaseRingSpeed = 45.0
 let DRingSpeed = 10.0             // Degrees per second per level
 let CannonRotSpeed = 1
 let DCannonRotSpeed = 0.1         // Change in cannon rot speed per level.
+let GameOverLen = 10.0
+let PlayerDeathLength = 4.0
 var Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
@@ -111,6 +114,14 @@ class Player: Thingy
   fireCooldown = 0.0
   bullets: [Bullet]
   score = 0
+  lives = 3
+  dead = false
+  deadCooldown = 0.0
+
+enum MainState:
+  StartScreen
+  Playing
+  GameOver
 
 
 def go():
@@ -124,6 +135,8 @@ def go():
     bullets: []}
   let fort = mkFort()
   let starfield = mkStarfield()
+  var state = StartScreen
+  var goCooldown = 0.0
 
   while gl_frame() and gl_button("escape") != 1:
     let wdims = float(gl_window_size())
@@ -133,21 +146,79 @@ def go():
 
     let dT = gl_delta_time()
 
-    bgnoiseCooldown -= dT
-    if bgnoiseCooldown <= 0 and fort.state != Dying:
-      play_sfxr("data/sfx/bgnoise.sfxr", Volume)
-      bgnoiseCooldown = BCD
+    switch state:
+      case StartScreen:
+        gl_scale(coordScale):
+          renderStartScreen(starfield, playfieldDims, wdims.y, pixelLineWidth)
+        if gl_button("space") == 1:
+          state = Playing
+          fort.state = Dying
+          respawnFort(fort, playfieldDims)
+          respawnPlayer(player, fort, playfieldDims)
 
-    updateFort(fort, player, playfieldDims, dT)
-    processInput(player, dT)
-    updatePlayer(player, fort, playfieldDims, dT)
+          // Reset the per-game state, this could be organized
+          // better.
+          player.score = 0
+          fort.numDeaths = 0
+          fort.plasmaBalls = []
 
-    gl_clear(color_black)
-    gl_scale(coordScale):
-      gl_color(color_blue)
-      renderStarfield(starfield, pixelLineWidth)
-      renderPlayer(player, fort, pixelLineWidth, wdims.y)
-      renderFort(fort, playfieldDims, pixelLineWidth)
+      case GameOver:
+        gl_scale(coordScale):
+          renderGameOverScreen(player, playfieldDims, pixelLineWidth, wdims.y)
+        goCooldown -= dT
+        if goCooldown < 0:
+          state = StartScreen
+
+      case Playing:
+        bgnoiseCooldown -= dT
+        if bgnoiseCooldown <= 0 and fort.state != Dying:
+          play_sfxr("data/sfx/bgnoise.sfxr", Volume)
+          bgnoiseCooldown = BCD
+
+        if player.dead:
+          player.deadCooldown -= dT
+          if player.deadCooldown <= 0:
+            if player.lives <= 0:
+              state = GameOver
+              goCooldown = GameOverLen
+              player.lives = 3
+            else:
+              respawnPlayer(player, fort, playfieldDims)
+
+
+        updateFort(fort, player, playfieldDims, dT)
+        if not player.dead:
+          processInput(player, dT)
+          updatePlayer(player, fort, playfieldDims, dT)
+
+        gl_clear(color_black)
+        gl_scale(coordScale):
+          gl_color(color_blue)
+          renderStarfield(starfield, pixelLineWidth)
+          renderPlayer(player, fort, pixelLineWidth, wdims.y, playfieldDims)
+          renderFort(fort, playfieldDims, pixelLineWidth)
+
+
+def respawnPlayer(player, fort, pfDims):
+  player.dead = false
+  player.pos = xy_1 * pfDims*0.75
+  sendSparksToRings(fort, pfDims)
+
+def renderStartScreen(starfield, pfDims, winHeight, pixelLineWidth):
+  let c = pfDims*0.5
+  gl_clear(color_black)
+  renderStarfield(starfield, pixelLineWidth)
+
+  gl_color(color_white)
+  renderCenteredText("Stellar Fortification", 4/winHeight, pixelLineWidth, c)
+  renderCenteredText("Press Space to Start", 3/winHeight, pixelLineWidth, c + xy_y * 140.mils)
+
+def renderGameOverScreen(player, pfDims, pixelLineWidth, winHeight):
+  let c = pfDims*0.5
+  gl_clear(color_black)
+  gl_color(color_blue)
+  renderCenteredText("Game Over", 4/winHeight, pixelLineWidth, c)
+  renderCenteredText("Score: " + player.score, 3/winHeight, pixelLineWidth, c + xy_y * 140.mils)
 
 // Sets up the fort state for the death animation, and
 // score screen.
@@ -171,18 +242,20 @@ def respawnFort(f:: Fort, pfDims):
 
       for(r.segs) sg:
         sg.hp = SegMaxHp
-    //TODO increase rot speed etc.
 
-    for(sparks) s:
-      s.state = SeekingRing
-      s.pos = pfDims*0.5
+    sendSparksToRings(f, pfDims)
+
+def sendSparksToRings(f: Fort, pfDims):
+  for(f.sparks) s:
+    s.state = SeekingRing
+    s.pos = pfDims*0.5
 
 def lvlRingSpeed(f: Fort, ringIdx:int):
   let fac = if ringIdx == 1: -1 else: 1
 
   return fac*(BaseRingSpeed + (2-ringIdx)*15.0 + DRingSpeed*f.numDeaths)
 
-def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
+def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight, pfDims):
   renderBullets(p, lineWidth)
 
   gl_translate(p.pos):
@@ -201,15 +274,28 @@ def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight):
             gl_line(jitterY(mid, 0.005), jitterY(mid + xy_x * -ThrusterLen, 0.7*ThrusterLen), 
                     lineWidth)
 
+        var scale = 1.0
+        if p.dead:
+          let t = max(0, (max(0, p.deadCooldown) - 3.0)/3.0)
+          scale = lerp(0.001, 1.0, t)
+
         gl_color(color_white)
-        gl_polygon([rear1, 
-                    rear2, 
-                    xy_f {d*1.5, 0.0}])
+        gl_scale(scale):
+          gl_polygon([rear1, 
+                      rear2, 
+                      xy_f {d*1.5, 0.0}])
+          if p.dead:
+            renderSparkleBall(xy_0, 3, PlayerRadius, PlayerRadius/8, lineWidth)
 
   if fort.state == Dying:
-    let msg = "score: " + p.score + "     level: " + (fort.numDeaths)
+    let msg = "score: " + p.score + "   lives: " + p.lives + "    level: " + (fort.numDeaths)
     gl_color(color_blue)
     renderText(msg, 2/winHeight, lineWidth, xy_f{400.mils, 12.mils})
+
+  if p.dead:
+    gl_color(color_blue)
+    renderCenteredText("Lives left: " + p.lives, 2/winHeight, lineWidth, pfDims*0.5 + xy_y*0.3)
+    renderCenteredText("score: " + p.score, 2/winHeight, lineWidth, pfDims*0.5 + xy_y*0.4)
 
 def processInput(p:: Player, dT: float):
   if gl_button("a") > 0:
@@ -325,13 +411,15 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
 
   var numSegsBroke = 0
   plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims, false)
-  if numSegsBroke:
-    play_sfxr("data/sfx/ringhit.sfxr", Volume)
+
+  for(plasmaBalls) pb:
+    if magnitude(player.pos - pb.pos) < (PlayerRadius+PlasmaRadius):
+      killPlayer(player)
 
   cannonCooldown -= dT
   switch state:
     case Seeking:
-      if canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
+      if not player.dead and canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
         cannonCooldown = lvlPlasmaCooldown(f)
         plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
         play_sfxr("data/sfx/plasma.sfxr", max(128, 2*Volume))
@@ -392,8 +480,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
     let center = pfDims*00.5
 
     if pdist < PlayerRadius:
-      play_sfxr("data/sfx/playerboom.sfxr", Volume)
-      //TODO more to do when player actually has a dead state.
+      killPlayer(player)
     else:
       switch s.state:
         case SeekingPlayer:
@@ -509,7 +596,7 @@ def renderFort(f: Fort, pfDims, pixelLineWidth):
 
   gl_color(color_white)
   for(f.plasmaBalls) p:
-    renderSparkleBall(p.pos, 15, pfDims.y/40, pfDims.y/60, pixelLineWidth)
+    renderSparkleBall(p.pos, 15, PlasmaRadius, PlasmaRadius/4, pixelLineWidth)
 
 def renderSparkleBall(pos: xy_f, numLines: int, radius, radiusJitter, pixelLineWidth):
   for(numLines):
@@ -606,6 +693,17 @@ def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
 // array.
 def fireBullet(pl: Player):
   return Bullet{pos: pl.pos, velocity: sincos(pl.rot) + pl.velocity}
+
+// Player is dead.  Subtract a life, and
+// setup to animate the death.
+def killPlayer(p: Player):
+  if not p.dead:
+    p.lives--
+    p.dead = true
+    p.deadCooldown = PlayerDeathLength
+    p.thrusting = false // no longer
+    p.velocity = xy_0
+    play_sfxr("data/sfx/playerboom.sfxr")
 
 // Sounds are loaded lazily.  Not a problem for most things, but
 // the lag is noticable for some, so we do this to preload some

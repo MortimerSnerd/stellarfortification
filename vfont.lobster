@@ -102,35 +102,51 @@ private def lookupLetterIndex(c: int):
   // None found, return index of UnknownChar.
   return lookupLetterIndex(UnknownChar)
 
-// Renders a letter, and returns the maximum x value
+// Renders a letter, and returns the maximum xy value
 // drawn to.
-private def renderLetter(c: int, scale: float, lineWidth: float, pos: xy_f):
+private def renderLetter(c: int, scale: float, lineWidth: float, pos: xy_f, drawing: bool):
   if c == 32:
-    return pos.x + 4*scale
+    return pos + xy_f{4*scale, 0}
   else:
     let ix = lookupLetterIndex(c)
-    var maxx = pos.x
+    var maxp = pos
 
     lines(ix, scale) o1, o2:
       let p1 = o1 + pos
       let p2 = o2 + pos
 
-      gl_line(p1, p2, lineWidth)
-      maxx = max(maxx, p1.x)
-      maxx = max(maxx, p2.x)
+      if drawing:
+        gl_line(p1, p2, lineWidth)
 
-    return maxx
+      maxp = xy_f{max(maxp.x, p1.x), max(maxp.y, p1.y)}
+      maxp = xy_f{max(maxp.x, p2.x), max(maxp.y, p2.y)}
 
-// Renders a string, returning the maxium x value drawn to.
+    return maxp
+
+// Renders a string, returning the maxium xy value drawn to.
 private let LetterSpacing=2
-def renderText(msg: string, scale: float, lineWidth: float, pos: xy_f):
+private def renderText(msg: string, scale: float, lineWidth: float, pos: xy_f, drawing: bool):
   var cpos = pos
 
+  var maxy = cpos.y
   for(uppercase(msg)) c:
-    let xadv = renderLetter(c, scale, lineWidth, cpos) + LetterSpacing * scale
-    cpos = xy_f {xadv, cpos.y}
+    let blk = renderLetter(c, scale, lineWidth, cpos, drawing) + LetterSpacing * scale
+    maxy = max(maxy, blk.y)
+    cpos = xy_f {blk.x, cpos.y}
 
-  return cpos.x
+  return xy_f{cpos.x, maxy}
 
+// Renders a string, returning the maxium xy value drawn to.
+def renderText(msg: string, scale: float, lineWidth: float, pos: xy_f):
+  return renderText(msg, scale, lineWidth, pos, true)
 
+// Returns xy_f dims of text when rendered.
+def textDims(msg: string, scale: float):
+  return renderText(msg, scale, 1, xy_0, false)
+
+// Renders a string centered on `pos`, returning the maxium xy value drawn to.
+def renderCenteredText(msg: string, scale: float, lineWidth: float, pos: xy_f):
+  let dims = textDims(msg, scale)
+
+  renderText(msg, scale, lineWidth, pos - dims*0.5, true)
 
