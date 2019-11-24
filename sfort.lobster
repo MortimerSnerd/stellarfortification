@@ -41,6 +41,7 @@ let BaseSparkSpeed = 0.15
 let MinSparkAwareness = 1.0/5.0   // How close spark needs to be to player to notice them.
 let SparkNoticeChance = 10.percent
 let MaxSparkReactionTime = 0.3
+let SparkTurnSpeed = 0.7          // How fast can we lerp a direction 
 var Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
@@ -64,10 +65,11 @@ enum SparkState:
   Riding
 
 class Spark:
-  pos: xy_f
+  pos: xy_f 
+  dir: xy_f                        // Has a direction so we can fake momentum
   state: SparkState = SeekingRing
-  hitch: Ring? // ring we are hitched to when state == Riding
-  seg: int     // ring #} when state == Riding
+  hitch: Ring?                     // ring we are hitched to when state == Riding
+  seg: int                         // ring #} when state == Riding
   playerCheckInterval: float = 0.0 // Reaction time of sparks noticing player.
   soundInterval = 0.0
 
@@ -279,7 +281,7 @@ def mkFort():
 def initialSparks():
   let rv = []
   for(3):
-    rv.push(Spark{pos: xy_1*0.5, state: SeekingRing, hitch: nil, seg: 0})
+    rv.push(Spark{pos: xy_1*0.5, dir: xy_x, state: SeekingRing, hitch: nil, seg: 0})
 
   return rv
 
@@ -344,18 +346,23 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   if f.state != Dying:
     updateSparks(f, player, dT, pfDims)
 
-def renderSparks(f: Fort, pixelLineWidth):
-  gl_color(color_red)
+def renderSparks(f: Fort, pfDims, pixelLineWidth):
+  gl_color(color_blue)
   for(f.sparks) s:
-    //DEBUGGERY
-    let d = xy_1 * 5.mils
-    gl_line(s.pos - d, s.pos + d, pixelLineWidth)
-    gl_line(s.pos - xy_f{d.x, -d.y}, s.pos + xy_f{d.x,-d.y}, pixelLineWidth)
+    let r1 = pfDims.y/100
+    let r2 = pfDims.y/200
+
+    if s.state == Riding:
+      renderSparkleBall(s.pos, 3, r1, r2, pixelLineWidth)
+    else:
+      renderSparkleBall(s.pos, 3, r1*0.5, r2*0.5, pixelLineWidth)
+      renderSparkleBall(s.pos+s.dir*r1*0.8, 3, r1*0.5, r2*0.5, pixelLineWidth)
 
 def updateSparks(f: Fort, player: Player, dT, pfDims):
   for(f.sparks) s:
     let vToPlayer = player.pos - s.pos
     let pdist = magnitude(vToPlayer)
+    let center = pfDims*00.5
 
     if pdist < PlayerRadius:
       play_sfxr("data/sfx/playerboom.sfxr", Volume)
@@ -366,11 +373,13 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
           if pdist > MinSparkAwareness:
             s.state = SeekingRing
           else:
-            s.pos += vToPlayer/pdist * dT * BaseSparkSpeed
+            s.dir = lerp(s.dir, vToPlayer/pdist, SparkTurnSpeed*dT)
+            s.pos +=  s.dir * dT * BaseSparkSpeed
 
         case Riding:
           if s.hitch == nil:
             s.state = SeekingRing
+            s.dir = normalize(center - s.pos)
           else:
             s.playerCheckInterval -= dT
             if s.playerCheckInterval <= 0:
@@ -378,31 +387,34 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
 
               if pdist < MinSparkAwareness and rnd_float() < SparkNoticeChance:
                 s.state = SeekingPlayer
+                s.dir = normalize(jitter(vToPlayer/pdist, xy_1*0.2))
 
             if s.state == Riding:  // still
               if s.hitch.targetRadius == 0 or s.hitch.segs[s.seg].hp <= 0:
                 // Well crap, they shot the ring out from under us.
                 s.state = SeekingPlayer
+                s.dir = normalize(jitter(vToPlayer/pdist, xy_1*0.2))
               else:
-                s.pos = ringMidpoint(s.hitch, s.seg, pfDims*0.5)
+                s.pos = ringMidpoint(s.hitch, s.seg, center)
 
         case SeekingRing:
-          let vToFort = pfDims*0.5 - s.pos
+          let vToFort = center - s.pos
           let fortDist = magnitude(vToFort)
 
-          if fortDist <= OuterRingRadius*0.7:
-            let ring = rnd(length(f.rings))
-            let seg = rnd(length(f.rings[ring].segs))
-
-            if not anySparkOnSeg(f, f.rings[ring], seg) and f.rings[ring].segs[seg].hp > 0:
-              s.hitch = f.rings[ring]
-              s.seg = seg
-              s.state = Riding
-            else:
-              // Wander around till we hit on a live segment.
-              s.pos += normalize(jitter(vToFort, xy_1*CannonRadius))*dT*BaseSparkSpeed
+          if pdist < MinSparkAwareness:
+            s.state = SeekingPlayer
           else:
-            s.pos += normalize(vToFort)*dT*BaseSparkSpeed
+            if fortDist <= OuterRingRadius*0.7:
+              let ring = rnd(length(f.rings))
+              let seg = rnd(length(f.rings[ring].segs))
+
+              if not anySparkOnSeg(f, f.rings[ring], seg) and f.rings[ring].segs[seg].hp > 0:
+                s.hitch = f.rings[ring]
+                s.seg = seg
+                s.state = Riding
+            else:
+              s.dir = lerp(s.dir, vToFort/fortDist, SparkTurnSpeed*dT)
+              s.pos += s.dir*dT*BaseSparkSpeed
 
       if s.state == SeekingPlayer or s.state == SeekingRing:
         s.soundInterval -= dT
@@ -437,7 +449,7 @@ def canFire(f:: Fort):
 def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.rings) r: render(r, pfDims, pixelLineWidth)
   if f.state != Dying:
-    renderSparks(f, pixelLineWidth)
+    renderSparks(f, pfDims, pixelLineWidth)
 
   var col = color_white 
   var scale = 1.0
@@ -462,10 +474,13 @@ def renderFort(f: Fort, pfDims, pixelLineWidth):
 
   gl_color(color_white)
   for(f.plasmaBalls) p:
-    for(15):
-      let v = sincos(360*rnd_float())*pfDims.y/(40+10*rnd_float())
-      gl_line(p.pos, p.pos + v,
-        jitter(pixelLineWidth, pixelLineWidth*2))
+    renderSparkleBall(p.pos, 15, pfDims.y/40, pfDims.y/60, pixelLineWidth)
+
+def renderSparkleBall(pos: xy_f, numLines: int, radius, radiusJitter, pixelLineWidth):
+  for(numLines):
+    let v = jitter(sincos(360*rnd_float())*radius, xy_f{radiusJitter, radiusJitter})
+    gl_line(pos, pos + v,
+      jitter(pixelLineWidth, pixelLineWidth*2))
 
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
   liveSegments(r, pfDims) p1, p2, sg:
