@@ -1,8 +1,3 @@
-//TODO move rings array into Fort class.  Fort will also keep up with
-//     the cannon state, and the sparks.  May move it to its own module
-//     to clean things up a bit. And also the state needed to animate
-//     new ring growth.
-
 import std
 import nonstd
 import color
