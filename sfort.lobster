@@ -34,11 +34,12 @@ let FireCooldown = 1/7.0
 let SegMaxHp = 2
 let PlasmaSpeed = 0.5
 let MaxPlasmaCooldown = 1.0
-let DPlasmaCooldown = 0.15
+let DPlasmaCooldown = 0.10
 let CannonRadius = RingMargin / 2 // Used for collision detection.
 let DeathPeriod = 5               // Number of seconds before a cannon respawns.
 let SegPoints = 5                 // number of points for destroying a segment.
 let BaseSparkSpeed = 0.15
+let DSparkSpeed = 0.025           // How much faster do sparks get each level?
 let MinSparkAwareness = 1.0/5.0   // How close spark needs to be to player to notice them.
 let DSparkAwareness = 0.05        // How much awareness range increases per level.
 let SparkNoticeChance = 10.percent
@@ -114,6 +115,7 @@ class Player: Thingy
 
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
+  preloadSounds()
 
   let BCD = 3.6
   var bgnoiseCooldown = 0.0
@@ -250,7 +252,7 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
 
   updateThingy(t, pfDims, dT)
   var numSegsBroke = 0
-  bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims)
+  bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims, true)
   if fort.state != Dying:
     score += numSegsBroke * SegPoints
 
@@ -322,7 +324,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       cannonRot = normalize(na)
 
   var numSegsBroke = 0
-  plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims)
+  plasmaBalls, numSegsBroke = updateBullets(plasmaBalls, f, dT, pfDims, false)
   if numSegsBroke:
     play_sfxr("data/sfx/ringhit.sfxr", Volume)
 
@@ -399,7 +401,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
             s.state = SeekingRing
           else:
             s.dir = lerp(s.dir, vToPlayer/pdist, SparkTurnSpeed*dT)
-            s.pos +=  s.dir * dT * BaseSparkSpeed
+            s.pos +=  s.dir * dT * lvlSparkSpeed(f)
 
         case Riding:
           if s.hitch == nil:
@@ -439,13 +441,16 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
                 s.state = Riding
             else:
               s.dir = lerp(s.dir, vToFort/fortDist, SparkTurnSpeed*dT)
-              s.pos += s.dir*dT*BaseSparkSpeed
+              s.pos += s.dir*dT*lvlSparkSpeed(f)
 
       if s.state == SeekingPlayer or s.state == SeekingRing:
         s.soundInterval -= dT
         if s.soundInterval <= 0:
           play_sfxr("data/sfx/sparkmove.sfxr", Volume)
           s.soundInterval += 0.3
+
+def lvlSparkSpeed(f: Fort):
+  return BaseSparkSpeed + f.numDeaths*DSparkSpeed
 
 // Returns spark awareness range, scaled for
 // level.
@@ -569,13 +574,13 @@ def renderBullets(pl: Player, pixelLineWidth):
 
 // Updates the bullets, and removes any that have
 // hit something, or gone off the playfield
-def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f) -> [Bullet], int:
+def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f, applyDamage:bool) -> [Bullet], int:
   var segsKilled = 0
   let newbs = filter(bs) b:
     let oldpos = b.pos
     b.pos += b.velocity * dT
     let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
-    if sg:
+    if applyDamage and sg:
       sg.hp--
       segsKilled++
 
@@ -601,4 +606,16 @@ def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
 // array.
 def fireBullet(pl: Player):
   return Bullet{pos: pl.pos, velocity: sincos(pl.rot) + pl.velocity}
+
+// Sounds are loaded lazily.  Not a problem for most things, but
+// the lag is noticable for some, so we do this to preload some
+// of the sounds at startup.
+def preloadSounds():
+  let snds = [ "data/sfx/fortboom.sfxr",
+    "data/sfx/playerboom.sfxr",
+    "data/sfx/ringgrow.sfxr",
+    "data/sfx/pshot.sfxr" ]
+
+  for(snds) s: play_sfxr(s, 1)
+
 go()
