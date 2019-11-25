@@ -123,6 +123,32 @@ enum MainState:
   GameOver
   Paused
 
+//
+// Parameters that scale with the number of times
+// the fort has been destroyed.
+//
+ 
+def lvlPlasmaCooldown(f: Fort):
+  return max(0.1, MaxPlasmaCooldown - f.numDeaths*DPlasmaCooldown)
+
+def lvlCannonRotSpeed(f: Fort):
+  return CannonRotSpeed + f.numDeaths*DCannonRotSpeed
+
+def lvlRingSpeed(f: Fort, ringIdx:int):
+  let fac = if ringIdx == 1: -1 else: 1
+
+  return fac*(BaseRingSpeed + (2-ringIdx)*15.0 + DRingSpeed*f.numDeaths)
+
+def lvlSparkSpeed(f: Fort):
+  return BaseSparkSpeed + f.numDeaths*DSparkSpeed
+
+// Returns spark awareness range, scaled for
+// level.
+def lvlSparkAwarenessDist(f: Fort):
+  return MinSparkAwareness + f.numDeaths*DSparkAwareness
+
+
+// Game loop.
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
   preloadSounds()
@@ -207,12 +233,6 @@ def go():
           if state == Paused:
             renderCenteredText("Paused", 4/wdims.y, pixelLineWidth, playfieldDims*0.5)
 
-def respawnPlayer(player, fort, pfDims):
-  player.dead = false
-  player.pos = xy_1 * pfDims*0.75
-  player.bullets = []
-  sendSparksToRings(fort, pfDims)
-
 def renderStartScreen(starfield, pfDims, winHeight, pixelLineWidth):
   let c = pfDims*0.5
   gl_clear(color_black)
@@ -229,38 +249,54 @@ def renderGameOverScreen(player, pfDims, pixelLineWidth, winHeight):
   renderCenteredText("Game Over", 4/winHeight, pixelLineWidth, c)
   renderCenteredText("Score: " + player.score, 3/winHeight, pixelLineWidth, c + xy_y * 140.mils)
 
-// Sets up the fort state for the death animation, and
-// score screen.
-def killFort(f:: Fort):
-  if state != Dying:
-    play_sfxr("data/sfx/fortboom.sfxr")
-    state = Dying
-    timeToRespawn = DeathPeriod
-    for(rings) r:
-      r.targetRadius = 1.mils // Collapsing rings.
 
-// Called to move
-def respawnFort(f:: Fort, pfDims):
-  if state != Seeking:
-    numDeaths++
-    state = Seeking
-    play_sfxr("data/sfx/fortspawn.sfxr", Volume)
-    respaceRings(rings)
-    for(rings) r, i:
-      for(r.segs) sg:
-        sg.hp = SegMaxHp
 
-    sendSparksToRings(f, pfDims)
+//
+// Player functions
+//
 
-def sendSparksToRings(f: Fort, pfDims):
-  for(f.sparks) s:
-    s.state = SeekingRing
-    s.pos = pfDims*0.5
+// Returns a new bullet to be added to the bullets
+// array.
+def fireBullet(pl: Player):
+  return Bullet{pos: pl.pos, velocity: sincos(pl.rot) + pl.velocity}
 
-def lvlRingSpeed(f: Fort, ringIdx:int):
-  let fac = if ringIdx == 1: -1 else: 1
+def renderBullets(pl: Player, pixelLineWidth):
+  for(pl.bullets) b:
+    let p1 = b.pos + normalize(b.velocity) * 6.mils
+    gl_line(b.pos, p1, 2 * pixelLineWidth)
 
-  return fac*(BaseRingSpeed + (2-ringIdx)*15.0 + DRingSpeed*f.numDeaths)
+// Updates the bullets, and removes any that have
+// hit something, or gone off the playfield
+def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f, applyDamage:bool) -> [Bullet], int:
+  var segsKilled = 0
+  let newbs = filter(bs) b:
+    let oldpos = b.pos
+    b.pos += b.velocity * dT
+    let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
+    if applyDamage and sg:
+      sg.hp--
+      segsKilled++
+
+    inPlayfield(b.pos, pfDims) and not sg
+
+  return newbs, segsKilled
+
+// Player is dead.  Subtract a life, and
+// setup to animate the death.
+def killPlayer(p: Player):
+  if not p.dead:
+    p.lives--
+    p.dead = true
+    p.deadCooldown = PlayerDeathLength
+    p.thrusting = false // no longer
+    p.velocity = xy_0
+    play_sfxr("data/sfx/playerboom.sfxr")
+
+def respawnPlayer(player, fort, pfDims):
+  player.dead = false
+  player.pos = xy_1 * pfDims*0.75
+  player.bullets = []
+  sendSparksToRings(fort, pfDims)
 
 def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight, pfDims):
   renderBullets(p, lineWidth)
@@ -365,25 +401,48 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
         score += 300
         return
 
-def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
-  pos += velocity * dT
-  velocity *= vDecay
+//
+// Fort functions
+//
 
-  rot += dRot * dT
-  dRot *= rotDecay
+// Sets up the fort state for the death animation, and
+// score screen.
+def killFort(f:: Fort):
+  if state != Dying:
+    play_sfxr("data/sfx/fortboom.sfxr")
+    state = Dying
+    timeToRespawn = DeathPeriod
+    for(rings) r:
+      r.targetRadius = 1.mils // Collapsing rings.
 
-  // Leaving edge of screen wraps around.
-  if pos.x < -WrapMargin:
-    pos += xy_f {pfDims.x + WrapMargin*2, 0}
-  else:
-    if pos.x > (pfDims.x+WrapMargin):
-      pos -= xy_f{pfDims.x + WrapMargin*2, 0}
+// Called to move
+def respawnFort(f:: Fort, pfDims):
+  if state != Seeking:
+    numDeaths++
+    state = Seeking
+    play_sfxr("data/sfx/fortspawn.sfxr", Volume)
+    respaceRings(rings)
+    for(rings) r, i:
+      for(r.segs) sg:
+        sg.hp = SegMaxHp
 
-  if pos.y < -WrapMargin:
-    pos += xy_f {0, pfDims.y + WrapMargin*2}
-  else:
-    if pos.y > (WrapMargin+1):
-      pos -= xy_f{0, pfDims.y + WrapMargin*2}
+    sendSparksToRings(f, pfDims)
+
+def sendSparksToRings(f: Fort, pfDims):
+  for(f.sparks) s:
+    s.state = SeekingRing
+    s.pos = pfDims*0.5
+// Tests for a hit against a ring segment.
+// If there is a hit, returns the segment, nil otherwise.
+def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
+  for(f.rings) r:
+    liveSegments(r, pfDims) x0, x1, sg:
+      let hit, hpos = line_intersect(p0, p1, x0, x1)
+      if hit:
+        return sg
+
+  return nil
+
 
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
@@ -476,13 +535,6 @@ def renderSparks(f: Fort, pfDims, pixelLineWidth):
       renderSparkleBall(s.pos, 3, r1*0.5, r2*0.5, pixelLineWidth)
       renderSparkleBall(s.pos+s.dir*r1*0.8, 3, r1*0.5, r2*0.5, pixelLineWidth)
 
-// Plasma cannon cooldown scaled for level.
-def lvlPlasmaCooldown(f: Fort):
-  return max(0.1, MaxPlasmaCooldown - f.numDeaths*DPlasmaCooldown)
-
-def lvlCannonRotSpeed(f: Fort):
-  return CannonRotSpeed + f.numDeaths*DCannonRotSpeed
-
 def updateSparks(f: Fort, player: Player, dT, pfDims):
   for(f.sparks) s:
     let vToPlayer = player.pos - s.pos
@@ -546,14 +598,6 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
           play_sfxr("data/sfx/sparkmove.sfxr", Volume)
           s.soundInterval += 0.3
 
-def lvlSparkSpeed(f: Fort):
-  return BaseSparkSpeed + f.numDeaths*DSparkSpeed
-
-// Returns spark awareness range, scaled for
-// level.
-def lvlSparkAwarenessDist(f: Fort):
-  return MinSparkAwareness + f.numDeaths*DSparkAwareness
-
 // Returns true if there is already a spark
 // riding on the given segment.
 def anySparkOnSeg(f: Fort, ring: Ring?, seg: int):
@@ -569,7 +613,6 @@ def ringMidpoint(ring: Ring, seg: int, center: xy_f):
   let ang2 = ang + dang*0.5
 
   return center + sincos(ang2) * ring.radius
-
 
 def respaceRings(rings):
   for(rings) r, i:
@@ -608,12 +651,6 @@ def renderFort(f: Fort, pfDims, pixelLineWidth):
   for(f.plasmaBalls) p:
     renderSparkleBall(p.pos, 15, PlasmaRadius, PlasmaRadius/4, pixelLineWidth)
 
-def renderSparkleBall(pos: xy_f, numLines: int, radius, radiusJitter, pixelLineWidth):
-  for(numLines):
-    let v = jitter(sincos(360*rnd_float())*radius, xy_f{radiusJitter, radiusJitter})
-    gl_line(pos, pos + v,
-      jitter(pixelLineWidth, pixelLineWidth*2))
-
 def render(r: Ring, pfDims: xy_f, pixelLineWidth):
   liveSegments(r, pfDims) p1, p2, sg:
     gl_color(r.color * (sg.hp + 1) / (SegMaxHp+1))
@@ -640,6 +677,10 @@ def initRings(f: Fort, rings):
   rings.push(mkRing(RingMargin * 2, color_blue))
   rings.push(mkRing(RingMargin * 3, color_green))
 
+//
+// Misc
+//
+ 
 def mkStarfield():
   let z = 0.0
   let nPts = 120
@@ -664,56 +705,34 @@ def renderStarfield(mesh, pixelLineWidth: float):
   gl_render_mesh(mesh)
   gl_set_shader("color")
 
-def renderBullets(pl: Player, pixelLineWidth):
-  for(pl.bullets) b:
-    let p1 = b.pos + normalize(b.velocity) * 6.mils
-    gl_line(b.pos, p1, 2 * pixelLineWidth)
-
-// Updates the bullets, and removes any that have
-// hit something, or gone off the playfield
-def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f, applyDamage:bool) -> [Bullet], int:
-  var segsKilled = 0
-  let newbs = filter(bs) b:
-    let oldpos = b.pos
-    b.pos += b.velocity * dT
-    let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
-    if applyDamage and sg:
-      sg.hp--
-      segsKilled++
-
-    inPlayfield(b.pos, pfDims) and not sg
-
-  return newbs, segsKilled
-
 def inPlayfield(p, pfDims):
   return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
 
-// Tests for a hit against a ring segment.
-// If there is a hit, returns the segment, nil otherwise.
-def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
-  for(f.rings) r:
-    liveSegments(r, pfDims) x0, x1, sg:
-      let hit, hpos = line_intersect(p0, p1, x0, x1)
-      if hit:
-        return sg
+def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
+  pos += velocity * dT
+  velocity *= vDecay
 
-  return nil
+  rot += dRot * dT
+  dRot *= rotDecay
 
-// Returns a new bullet to be added to the bullets
-// array.
-def fireBullet(pl: Player):
-  return Bullet{pos: pl.pos, velocity: sincos(pl.rot) + pl.velocity}
+  // Leaving edge of screen wraps around.
+  if pos.x < -WrapMargin:
+    pos += xy_f {pfDims.x + WrapMargin*2, 0}
+  else:
+    if pos.x > (pfDims.x+WrapMargin):
+      pos -= xy_f{pfDims.x + WrapMargin*2, 0}
 
-// Player is dead.  Subtract a life, and
-// setup to animate the death.
-def killPlayer(p: Player):
-  if not p.dead:
-    p.lives--
-    p.dead = true
-    p.deadCooldown = PlayerDeathLength
-    p.thrusting = false // no longer
-    p.velocity = xy_0
-    play_sfxr("data/sfx/playerboom.sfxr")
+  if pos.y < -WrapMargin:
+    pos += xy_f {0, pfDims.y + WrapMargin*2}
+  else:
+    if pos.y > (WrapMargin+1):
+      pos -= xy_f{0, pfDims.y + WrapMargin*2}
+
+def renderSparkleBall(pos: xy_f, numLines: int, radius, radiusJitter, pixelLineWidth):
+  for(numLines):
+    let v = jitter(sincos(360*rnd_float())*radius, xy_f{radiusJitter, radiusJitter})
+    gl_line(pos, pos + v,
+      jitter(pixelLineWidth, pixelLineWidth*2))
 
 // Sounds are loaded lazily.  Not a problem for most things, but
 // the lag is noticable for some, so we do this to preload some
