@@ -121,7 +121,7 @@ enum MainState:
   StartScreen
   Playing
   GameOver
-
+  Paused
 
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
@@ -168,21 +168,28 @@ def go():
         if goCooldown < 0:
           state = StartScreen
 
-      case Playing:
+      case Playing, Paused:
         bgnoiseCooldown -= dT
         if bgnoiseCooldown <= 0 and fort.state != Dying:
           play_sfxr("data/sfx/bgnoise.sfxr", Volume)
           bgnoiseCooldown = BCD
 
-        if player.dead:
-          player.deadCooldown -= dT
-          if player.deadCooldown <= 0:
-            if player.lives <= 0:
-              state = GameOver
-              goCooldown = GameOverLen
-              player.lives = 3
-            else:
-              respawnPlayer(player, fort, playfieldDims)
+        if state == Paused:
+          if gl_button("p") == 1:
+            state = Playing
+        else:
+          if gl_button("p") == 1:
+            state = Paused
+
+          if player.dead:
+            player.deadCooldown -= dT
+            if player.deadCooldown <= 0:
+              if player.lives <= 0:
+                state = GameOver
+                goCooldown = GameOverLen
+                player.lives = 3
+              else:
+                respawnPlayer(player, fort, playfieldDims)
 
 
         updateFort(fort, player, playfieldDims, dT)
@@ -196,7 +203,8 @@ def go():
           renderStarfield(starfield, pixelLineWidth)
           renderPlayer(player, fort, pixelLineWidth, wdims.y, playfieldDims)
           renderFort(fort, playfieldDims, pixelLineWidth)
-
+          if state == Paused:
+            renderCenteredText("Paused", 4/wdims.y, pixelLineWidth, playfieldDims*0.5)
 
 def respawnPlayer(player, fort, pfDims):
   player.dead = false
