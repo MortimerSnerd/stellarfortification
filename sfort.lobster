@@ -192,9 +192,10 @@ def go():
                 respawnPlayer(player, fort, playfieldDims)
 
 
-        updateFort(fort, player, playfieldDims, dT)
-        if not player.dead:
-          processInput(player, dT)
+          updateFort(fort, player, playfieldDims, dT)
+          if not player.dead:
+            processInput(player, dT)
+
           updatePlayer(player, fort, playfieldDims, dT)
 
         gl_clear(color_black)
@@ -209,6 +210,7 @@ def go():
 def respawnPlayer(player, fort, pfDims):
   player.dead = false
   player.pos = xy_1 * pfDims*0.75
+  player.bullets = []
   sendSparksToRings(fort, pfDims)
 
 def renderStartScreen(starfield, pfDims, winHeight, pixelLineWidth):
@@ -293,7 +295,7 @@ def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight, pfDims):
             renderSparkleBall(xy_0, 3, PlayerRadius, PlayerRadius/8, lineWidth)
 
   if fort.state == Dying:
-    let msg = "score: " + p.score + "   lives: " + p.lives + "    level: " + (fort.numDeaths)
+    let msg = "score: " + p.score + "   lives: " + p.lives + "    level: " + (1+fort.numDeaths)
     gl_color(color_blue)
     renderText(msg, 2/winHeight, lineWidth, xy_f{400.mils, 12.mils})
 
@@ -324,24 +326,27 @@ def processInput(p:: Player, dT: float):
 def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
   let minPush = 1
-  if magnitude(vToPlayer) < (OuterRingRadius + PlayerRadius):
-    // We do not want to worry about rings pushing
-    // the ship around, so do not go in there.
-    let n = normalize(vToPlayer)
-    let nvel = normalize(velocity)
 
-    // Don't interfere with the ship if it is heading away
-    // from the fort.
-    if dot(n, nvel) <= 0:
-      if almost(magnitude(velocity), 0, 0.015):
-        // Do not allow a lack of velocity from pushing
-        // us out of there.
-        velocity = n * -minPush * 0.10
+  if not dead:
+    if magnitude(vToPlayer) < (OuterRingRadius + PlayerRadius):
+      // We do not want to worry about rings pushing
+      // the ship around, so do not go in there.
+      let n = normalize(vToPlayer)
+      let nvel = normalize(velocity)
 
-      let reflect = velocity - n*2*dot(velocity, n)
-      velocity = reflect * max(magnitude(velocity), minPush) * 0.8
+      // Don't interfere with the ship if it is heading away
+      // from the fort.
+      if dot(n, nvel) <= 0:
+        if almost(magnitude(velocity), 0, 0.015):
+          // Do not allow a lack of velocity from pushing
+          // us out of there.
+          velocity = n * -minPush * 0.10
 
-  updateThingy(t, pfDims, dT)
+        let reflect = velocity - n*2*dot(velocity, n)
+        velocity = reflect * max(magnitude(velocity), minPush) * 0.8
+
+    updateThingy(t, pfDims, dT)
+
   var numSegsBroke = 0
   bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims, true)
   if fort.state != Dying:
