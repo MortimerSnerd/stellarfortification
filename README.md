@@ -27,15 +27,17 @@ Then just run:
 ## Controls
 
 `A` and `D` to turn, `W` to go forward, and 
-`Space` to fire.  `Escape` quits.
+`Space` to fire.  `Escape` quits. `P` pauses.
 
 ## Status
 
-The cannon and rings are there. The rings and cannon, 
-got can get shot.  The cannon also fires, but doesn't
-do anything to the player.
+All the pieces are there.  The cannon and sparks are 
+implemented, and things get more hectic the more times 
+you kill the cannon.  There's a banner and game over
+screen now too.
 
-Still need to add the sparks that ride on the rings, 
-and harry the player, and a start screen, implement player
-death, and lives.
-
+The main thing left is reviewing the code. I know there's
+some sloppy state handling that's caused most of the
+final bugs, especially around state changes. And I suspect
+there's some boilerplate that can be cleaned up by
+making better use of Lobster's features.
