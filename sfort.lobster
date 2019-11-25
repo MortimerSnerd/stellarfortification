@@ -64,7 +64,6 @@ class Seg:
 class Ring:
   segs: [Seg] // In order from inner ring to outer.
   rot: float
-  dRot: float
   radius: float
   targetRadius: float
   color: color
@@ -238,8 +237,6 @@ def respawnFort(f:: Fort, pfDims):
     play_sfxr("data/sfx/fortspawn.sfxr", Volume)
     respaceRings(rings)
     for(rings) r, i:
-      r.dRot = lvlRingSpeed(f, i)
-
       for(r.segs) sg:
         sg.hp = SegMaxHp
 
@@ -445,11 +442,11 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       if timeToRespawn <= 0:
         respawnFort(pfDims)
 
-  for(rings) r:
+  for(rings) r, ridx:
     let dRad = r.targetRadius - r.radius
     if not almost(dRad, 0, 0.001):
       r.radius += dT*dRad*2 
-    r.rot += r.dRot * dT
+    r.rot += lvlRingSpeed(f, ridx) * dT 
 
   if f.state != Dying:
     updateSparks(f, player, dT, pfDims)
@@ -619,16 +616,16 @@ def liveSegments(r: Ring, pfDims: xy_f, blk):
       let sc2 = sincos(a2) * r.radius + center
       blk(sc1, sc2, s)
 
-def mkRing(dRot, radius, color):
+def mkRing(radius, color):
   let r = Ring {segs: vector_reserve(typeof return, segsPerRing), 
-                rot: 0.0, dRot: dRot, radius: 0, targetRadius: radius, color: color }
+                rot: 0.0, radius: 0, targetRadius: radius, color: color }
   for(segsPerRing): r.segs.push(Seg{})
   return r
 
 def initRings(f: Fort, rings):
-  rings.push(mkRing(lvlRingSpeed(f, 0), RingMargin, color_white))
-  rings.push(mkRing(lvlRingSpeed(f, 1), RingMargin * 2, color_blue))
-  rings.push(mkRing(lvlRingSpeed(f, 2), RingMargin * 3, color_green))
+  rings.push(mkRing(RingMargin, color_white))
+  rings.push(mkRing(RingMargin * 2, color_blue))
+  rings.push(mkRing(RingMargin * 3, color_green))
 
 def mkStarfield():
   let z = 0.0
