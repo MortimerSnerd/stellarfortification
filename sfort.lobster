@@ -68,23 +68,23 @@ class Ring:
   targetRadius: float
   color: color
 
+class Movable:
+  pos: xy_f
+  velocity: xy_f // Velocity per second.
+
 enum SparkState:
   SeekingPlayer
   SeekingRing
   Riding
 
-class Spark:
-  pos: xy_f 
-  dir: xy_f                        // Has a direction so we can fake momentum
+class Spark: Movable
   state: SparkState = SeekingRing
   hitch: Ring?                     // ring we are hitched to when state == Riding
   seg: int                         // ring # when state == Riding
   playerCheckInterval: float = 0.0 // Reaction time of sparks noticing player.
   soundInterval = 0.0
 
-class Bullet:
-  pos: xy_f
-  velocity: xy_f
+class Bullet: Movable
 
 enum FortState:
   Seeking
@@ -100,15 +100,11 @@ class Fort:
   sparks: [Spark]
   numDeaths = 0         // Used to scale speeds etc for harder levels.
 
-class Thingy:
-  pos: xy_f
-  velocity: xy_f
+class Player: Movable
   vDecay: float
   rot: float
   dRot: float
   rotDecay: float
-
-class Player: Thingy
   thrusting = true
   fireCooldown = 0.0
   bullets: [Bullet]
@@ -271,7 +267,7 @@ def updateBullets(bs: [Bullet], f: Fort, dT: float, pfDims: xy_f, applyDamage:bo
   var segsKilled = 0
   let newbs = filter(bs) b:
     let oldpos = b.pos
-    b.pos += b.velocity * dT
+    updateMovable(b, dT)
     let sg = hitRingSegment(f, oldpos, b.pos, pfDims)
     if applyDamage and sg:
       sg.hp--
@@ -381,7 +377,24 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
         let reflect = velocity - n*2*dot(velocity, n)
         velocity = reflect * max(magnitude(velocity), minPush) * 0.8
 
-    updateThingy(t, pfDims, dT)
+    updateMovable(t, dT)
+    velocity *= vDecay
+
+    rot += dRot * dT
+    dRot *= rotDecay
+
+    // Leaving edge of screen wraps around.
+    if pos.x < -WrapMargin:
+      pos += xy_f {pfDims.x + WrapMargin*2, 0}
+    else:
+      if pos.x > (pfDims.x+WrapMargin):
+        pos -= xy_f{pfDims.x + WrapMargin*2, 0}
+
+    if pos.y < -WrapMargin:
+      pos += xy_f {0, pfDims.y + WrapMargin*2}
+    else:
+      if pos.y > (WrapMargin+1):
+        pos -= xy_f{0, pfDims.y + WrapMargin*2}
 
   var numSegsBroke = 0
   bullets, numSegsBroke = updateBullets(bullets, fort, dT, pfDims, true)
@@ -456,7 +469,7 @@ def mkFort():
 def initialSparks():
   let rv = []
   for(3):
-    rv.push(Spark{pos: xy_1*0.5, dir: xy_x, state: SeekingRing, hitch: nil, seg: 0})
+    rv.push(Spark{pos: xy_1*0.5, velocity: xy_x, state: SeekingRing, hitch: nil, seg: 0})
 
   return rv
 
@@ -532,7 +545,7 @@ def renderSparks(f: Fort, pfDims, pixelLineWidth):
       renderSparkleBall(s.pos, 3, r1, r2, pixelLineWidth)
     else:
       renderSparkleBall(s.pos, 3, r1*0.5, r2*0.5, pixelLineWidth)
-      renderSparkleBall(s.pos+s.dir*r1*0.8, 3, r1*0.5, r2*0.5, pixelLineWidth)
+      renderSparkleBall(s.pos+s.velocity*r1*0.8, 3, r1*0.5, r2*0.5, pixelLineWidth)
 
 def updateSparks(f: Fort, player: Player, dT, pfDims):
   for(f.sparks) s:
@@ -548,13 +561,13 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
           if pdist > lvlSparkAwarenessDist(f):
             s.state = SeekingRing
           else:
-            s.dir = lerp(s.dir, vToPlayer/pdist, SparkTurnSpeed*dT)
-            s.pos +=  s.dir * dT * lvlSparkSpeed(f)
+            s.velocity = lerp(s.velocity, vToPlayer*lvlSparkSpeed(f)/pdist, SparkTurnSpeed*dT)
+            updateMovable(s, dT)
 
         case Riding:
           if s.hitch == nil:
             s.state = SeekingRing
-            s.dir = normalize(center - s.pos)
+            s.velocity = normalize(center - s.pos) * lvlSparkSpeed(f)
           else:
             s.playerCheckInterval -= dT
             if s.playerCheckInterval <= 0:
@@ -562,13 +575,13 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
 
               if pdist < lvlSparkAwarenessDist(f) and rnd_float() < SparkNoticeChance:
                 s.state = SeekingPlayer
-                s.dir = normalize(jitter(vToPlayer/pdist, xy_1*0.2))
+                s.velocity = normalize(jitter(vToPlayer/pdist, xy_1*0.2)) * lvlSparkSpeed(f)
 
             if s.state == Riding:  // still
               if s.hitch.targetRadius == 0 or s.hitch.segs[s.seg].hp <= 0:
                 // Well crap, they shot the ring out from under us.
                 s.state = SeekingPlayer
-                s.dir = normalize(jitter(vToPlayer/pdist, xy_1*0.2))
+                s.velocity = normalize(jitter(vToPlayer/pdist, xy_1*0.2)) * lvlSparkSpeed(f)
               else:
                 s.pos = ringMidpoint(s.hitch, s.seg, center)
 
@@ -588,8 +601,8 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
                 s.seg = seg
                 s.state = Riding
             else:
-              s.dir = lerp(s.dir, vToFort/fortDist, SparkTurnSpeed*dT)
-              s.pos += s.dir*dT*lvlSparkSpeed(f)
+              s.velocity= lerp(s.velocity, vToFort*lvlSparkSpeed(f)/fortDist, SparkTurnSpeed*dT)
+              updateMovable(s, dT)
 
       if s.state == SeekingPlayer or s.state == SeekingRing:
         s.soundInterval -= dT
@@ -679,7 +692,10 @@ def initRings(f: Fort, rings):
 //
 // Misc
 //
- 
+
+def updateMovable(m:: Movable, dT: float):
+  pos += velocity * dT
+
 def mkStarfield():
   let z = 0.0
   let nPts = 120
@@ -706,26 +722,6 @@ def renderStarfield(mesh, pixelLineWidth: float):
 
 def inPlayfield(p, pfDims):
   return p.x >= -WrapMargin and p.y >= -WrapMargin and p.x <= (pfDims.x+WrapMargin) and p.y <= (pfDims.y+WrapMargin)
-
-def updateThingy(t:: Thingy, pfDims: xy_f, dT: float):
-  pos += velocity * dT
-  velocity *= vDecay
-
-  rot += dRot * dT
-  dRot *= rotDecay
-
-  // Leaving edge of screen wraps around.
-  if pos.x < -WrapMargin:
-    pos += xy_f {pfDims.x + WrapMargin*2, 0}
-  else:
-    if pos.x > (pfDims.x+WrapMargin):
-      pos -= xy_f{pfDims.x + WrapMargin*2, 0}
-
-  if pos.y < -WrapMargin:
-    pos += xy_f {0, pfDims.y + WrapMargin*2}
-  else:
-    if pos.y > (WrapMargin+1):
-      pos -= xy_f{0, pfDims.y + WrapMargin*2}
 
 def renderSparkleBall(pos: xy_f, numLines: int, radius, radiusJitter, pixelLineWidth):
   for(numLines):
