@@ -21,8 +21,8 @@ import vfont
 def mils(f: float): return f * 0.001
 def percent(x): return float(x)*0.01
 
-let segsPerRing= 12
-let segArc = 360.0 / segsPerRing
+let SegsPerRing= 12
+let SegArc = 360.0 / SegsPerRing
 let RingMargin = 40.mils          // Distances between rings.
 let OuterRingRadius = RingMargin * 3
 let WrapMargin = 18.mils          // How far past the window edge before we wrap to other side of screen.
@@ -52,7 +52,7 @@ let CannonRotSpeed = 1
 let DCannonRotSpeed = 0.1         // Change in cannon rot speed per level.
 let GameOverLen = 10.0
 let PlayerDeathLength = 4.0
-var Volume = 32
+let Volume = 32
 
 // Line path used to draw cannon. Centered on 0,0
 let CannonLines: [xy_f] = map([xy_0, xy_f{3,0}, xy_f{3,-1}, xy_f{1,-1}, xy_f{-3,-4},
@@ -78,7 +78,7 @@ class Spark:
   dir: xy_f                        // Has a direction so we can fake momentum
   state: SparkState = SeekingRing
   hitch: Ring?                     // ring we are hitched to when state == Riding
-  seg: int                         // ring #} when state == Riding
+  seg: int                         // ring # when state == Riding
   playerCheckInterval: float = 0.0 // Reaction time of sparks noticing player.
   soundInterval = 0.0
 
@@ -338,7 +338,7 @@ def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight, pfDims):
   if p.dead:
     gl_color(color_blue)
     renderCenteredText("Lives left: " + p.lives, 2/winHeight, lineWidth, pfDims*0.5 + xy_y*0.3)
-    renderCenteredText("score: " + p.score, 2/winHeight, lineWidth, pfDims*0.5 + xy_y*0.4)
+    renderCenteredText("score: " + p.score + "    level: " + (fort.numDeaths+1), 2/winHeight, lineWidth, pfDims*0.5 + xy_y*0.4)
 
 def processInput(p:: Player, dT: float):
   if gl_button("a") > 0:
@@ -432,6 +432,7 @@ def sendSparksToRings(f: Fort, pfDims):
   for(f.sparks) s:
     s.state = SeekingRing
     s.pos = pfDims*0.5
+
 // Tests for a hit against a ring segment.
 // If there is a hit, returns the segment, nil otherwise.
 def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
@@ -442,7 +443,6 @@ def hitRingSegment(f: Fort, p0, p1: xy_f, pfDims: xy_f) -> Seg?:
         return sg
 
   return nil
-
 
 def mkFort():
   let rv = Fort {rings: vector_reserve(typeof return, 3),
@@ -459,7 +459,6 @@ def initialSparks():
     rv.push(Spark{pos: xy_1*0.5, dir: xy_x, state: SeekingRing, hitch: nil, seg: 0})
 
   return rv
-
 
 def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
   let center = pfDims*0.5
@@ -660,16 +659,16 @@ def liveSegments(r: Ring, pfDims: xy_f, blk):
   let center = pfDims * 0.5
   for(r.segs) s, i: 
     if s.hp > 0:
-      let a1  = r.rot + i * segArc
-      let a2  = a1 + segArc
+      let a1  = r.rot + i * SegArc
+      let a2  = a1 + SegArc
       let sc1 = sincos(a1) * r.radius + center
       let sc2 = sincos(a2) * r.radius + center
       blk(sc1, sc2, s)
 
 def mkRing(radius, color):
-  let r = Ring {segs: vector_reserve(typeof return, segsPerRing), 
+  let r = Ring {segs: vector_reserve(typeof return, SegsPerRing), 
                 rot: 0.0, radius: 0, targetRadius: radius, color: color }
-  for(segsPerRing): r.segs.push(Seg{})
+  for(SegsPerRing): r.segs.push(Seg{})
   return r
 
 def initRings(f: Fort, rings):
