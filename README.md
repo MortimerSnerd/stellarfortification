@@ -5,6 +5,8 @@ Playing around with the Lobster language
 Cloning the Star Castle arcade game as a way to 
 give direction while learning the language.
 
+![that's not good](/doc/ss.png)
+
 So far, I've found Lobster to be a pretty fun
 language to play around in.  I'm probably not
 using HOF as much as the language allows, but
