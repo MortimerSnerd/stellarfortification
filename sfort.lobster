@@ -68,23 +68,23 @@ class Ring:
   targetRadius: float
   color: color
 
-class Movable:
-  pos: xy_f
-  velocity: xy_f // Velocity per second.
-
 enum SparkState:
   SeekingPlayer
   SeekingRing
   Riding
 
-class Spark: Movable
+class Spark:
+  pos: xy_f
+  velocity: xy_f // Velocity per second.
   state: SparkState = SeekingRing
   hitch: Ring?                     // ring we are hitched to when state == Riding
   seg: int                         // ring # when state == Riding
   playerCheckInterval: float = 0.0 // Reaction time of sparks noticing player.
   soundInterval = 0.0
 
-class Bullet: Movable
+class Bullet:
+  pos: xy_f
+  velocity: xy_f // Velocity per second.
 
 enum FortState:
   Seeking
@@ -100,7 +100,9 @@ class Fort:
   sparks: [Spark]
   numDeaths = 0         // Used to scale speeds etc for harder levels.
 
-class Player: Movable
+class Player: 
+  pos: xy_f
+  velocity: xy_f // Velocity per second.
   vDecay: float
   rot: float
   dRot: float
@@ -693,8 +695,8 @@ def initRings(f: Fort, rings):
 // Misc
 //
 
-def updateMovable(m:: Movable, dT: float):
-  pos += velocity * dT
+def updateMovable(m, dT: float):
+  m.pos += m.velocity * dT
 
 def mkStarfield():
   let z = 0.0
