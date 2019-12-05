@@ -331,7 +331,7 @@ def renderPlayer(p: Player, fort: Fort, lineWidth, winHeight, pfDims):
   if fort.state == Dying:
     let msg = "score: " + p.score + "   lives: " + p.lives + "    level: " + (1+fort.numDeaths)
     gl_color(color_blue)
-    renderText(msg, 2/winHeight, lineWidth, xy_f{400.mils, 12.mils})
+    renderCenteredText(msg, 2/winHeight, lineWidth, xy_f{pfDims.x*0.5, 20.mils})
 
   if p.dead:
     gl_color(color_blue)
