@@ -146,6 +146,13 @@ def lvlSparkAwarenessDist(f: Fort):
   return MinSparkAwareness + f.numDeaths*DSparkAwareness
 
 
+// Compat function that resembles old play_sound
+def play_sound(fx: string, volume: int = 128):
+   let chan = play_sfxr(fx)
+
+   if chan >= 0:
+      sound_volume(chan, float(volume) / 128.0)
+
 // Game loop.
 def go():
   fatal(gl_window("Stellar Fort", 640, 480))
@@ -195,7 +202,7 @@ def go():
       case Playing, Paused:
         bgnoiseCooldown -= dT
         if bgnoiseCooldown <= 0 and fort.state != Dying:
-          play_sfxr("data/sfx/bgnoise.sfxr", Volume)
+          play_sound("data/sfx/bgnoise.sfxr", Volume)
           bgnoiseCooldown = BCD
 
         if state == Paused:
@@ -288,7 +295,7 @@ def killPlayer(p: Player):
     p.deadCooldown = PlayerDeathLength
     p.thrusting = false // no longer
     p.velocity = xy_0
-    play_sfxr("data/sfx/playerboom.sfxr")
+    play_sound("data/sfx/playerboom.sfxr")
 
 def respawnPlayer(player, fort, pfDims):
   player.dead = false
@@ -355,7 +362,7 @@ def processInput(p:: Player, dT: float):
   if fireCooldown <=0 and gl_button("space") > 0:
     p.bullets.push(fireBullet(p))
     fireCooldown = FireCooldown
-    play_sfxr("data/sfx/pshot.sfxr", Volume)
+    play_sound("data/sfx/pshot.sfxr", Volume)
 
 def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
   let vToPlayer = pos - pfDims * 0.5
@@ -404,7 +411,7 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
     score += numSegsBroke * SegPoints
 
   if numSegsBroke > 0:
-    play_sfxr("data/sfx/ringhit.sfxr", Volume)
+    play_sound("data/sfx/ringhit.sfxr", Volume)
 
   // Did we hit the cannon?
   if fort.state != Dying:
@@ -424,7 +431,7 @@ def updatePlayer(t:: Player, fort: Fort, pfDims: xy_f, dT: float):
 // score screen.
 def killFort(f:: Fort):
   if state != Dying:
-    play_sfxr("data/sfx/fortboom.sfxr")
+    play_sound("data/sfx/fortboom.sfxr")
     state = Dying
     timeToRespawn = DeathPeriod
     for(rings) r:
@@ -435,7 +442,7 @@ def respawnFort(f:: Fort, pfDims):
   if state != Seeking:
     numDeaths++
     state = Seeking
-    play_sfxr("data/sfx/fortspawn.sfxr", Volume)
+    play_sound("data/sfx/fortspawn.sfxr", Volume)
     respaceRings(rings)
     for(rings) r, i:
       for(r.segs) sg:
@@ -505,7 +512,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
       if not player.dead and canFire() and not hitRingSegment(f, center, cannonRot*2, pfDims):
         cannonCooldown = lvlPlasmaCooldown(f)
         plasmaBalls.push(Bullet{pos: center, velocity: cannonRot*PlasmaSpeed})
-        play_sfxr("data/sfx/plasma.sfxr", max(128, 2*Volume))
+        play_sound("data/sfx/plasma.sfxr", max(128, 2*Volume))
 
       // Clean out any dead rings and regrow them.
       let live, dead = partition(rings) r:
@@ -521,7 +528,7 @@ def updateFort(f:: Fort, player: Player, pfDims: xy_f, dT: float):
 
         rings = append(dead, live)
         respaceRings(rings)
-        play_sfxr("data/sfx/ringgrow.sfxr")
+        play_sound("data/sfx/ringgrow.sfxr")
 
     case Dying:
       timeToRespawn -= dT
@@ -609,7 +616,7 @@ def updateSparks(f: Fort, player: Player, dT, pfDims):
       if s.state == SeekingPlayer or s.state == SeekingRing:
         s.soundInterval -= dT
         if s.soundInterval <= 0:
-          play_sfxr("data/sfx/sparkmove.sfxr", Volume)
+          play_sound("data/sfx/sparkmove.sfxr", Volume)
           s.soundInterval += 0.3
 
 // Returns true if there is already a spark
@@ -740,6 +747,6 @@ def preloadSounds():
     "data/sfx/ringgrow.sfxr",
     "data/sfx/pshot.sfxr" ]
 
-  for(snds) s: play_sfxr(s, 1)
+  for(snds) s: play_sound(s, 1)
 
 go()

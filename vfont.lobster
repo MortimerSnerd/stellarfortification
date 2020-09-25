@@ -94,7 +94,7 @@ private def lines(ix, scale: float, body):
       last = p
 
 // Just a linear search for now.
-private def lookupLetterIndex(c: int):
+private def lookupLetterIndex(c: int) -> int:
   for(letters) l,i:
     if c == l.ch:
       return i
